@@ -1,3 +1,4 @@
 module.exports = {
-    OPENAI_KEY: "your_api_key",
+    OPENAI_KEY: "",
+    PHONE_NUMBER: ""
 };
