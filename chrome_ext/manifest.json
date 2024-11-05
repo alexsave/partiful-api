@@ -1,0 +1,12 @@
+{
+    "manifest_version": 3,
+    "name": "The Ultimate Chrome Extension",
+    "version": "1.0",
+    "description": "Connects to a port on localhost and runs whatever the server sends.",
+    "content_scripts": [{
+        "matches": ["<all_urls>"],
+        "js": ["content.js"],
+        "run_at": "document_idle",
+        "all_frames": true}
+    ]   
+}
