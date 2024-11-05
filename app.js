@@ -1,6 +1,11 @@
 const http = require('http');
 const crypto = require('crypto');
 const readline = require('readline');
+const OpenAI = require('openai');
+
+const {partifulApi, summaryForLLM} = require('./partiful')
+
+const client = new OpenAI();
 
 // WebSocket server variables
 const sockets = [];
@@ -148,15 +153,33 @@ function createWebSocketFrame(data) {
 const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout
-  });
-  
-  // Listen for user input and send a message to all connected clients
-  rl.on('line', (input) => {
-    console.log(`User input received: ${input}`);
-  
-    // Send the action message to all connected clients
-    const actionMessage = createWebSocketFrame(JSON.stringify({ action: input }));
-    sockets.forEach((socket) => {
-      socket.write(actionMessage);
+});
+
+
+// This handles raw input by sending it to ChatGPT and doing stuff.
+// Eventually we get to the point where we just give it the DOM, plus the click&type commands. 
+// But for now we have "APIs" that bundle a bunch of commands
+const processCommand = async input => {
+    //console.log(input);
+    //console.log(JSON.stringify(partifulApi.map(x => {x.name, x.description, x.params})))
+    //console.log(summaryForLLM);
+
+    console.log(`Given the user request "${input}" and the available APIs:\n${summaryForLLM}, return the name of the API to use to fulfill the users request.`)
+
+    const completion = await client.beta.chat.completions.parse({
+        model: 'gpt-4o-2024-08-06',
+        messages: [
+            { role: 'system', content: 'You are a helpful assistant. The current date is August 6, 2024. You help users query for the data they are looking for by calling the query function.' },
+            { role: 'user', content: 'look up all my orders in may of last year that were fulfilled but not delivered on time' }
+        ],
+        tools: [zodFunction({ name: 'query', parameters: QueryArgs })],
     });
-  });
+    console.log(JSON.stringify(completion));
+
+}
+
+// Listen for user input and send a message to all connected clients
+rl.on('line', (input) => {
+    console.log(`User input received: ${input}`);
+    processCommand(input);
+});
