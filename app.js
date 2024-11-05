@@ -1,7 +1,11 @@
 const http = require('http');
 const crypto = require('crypto');
 const readline = require('readline');
+require('dotenv').config();
 const OpenAI = require('openai');
+
+const { zodResponseFormat } = require('openai/helpers/zod');
+const { z } = require('zod');
 
 const {partifulApi, summaryForLLM} = require('./partiful')
 
@@ -9,6 +13,9 @@ const client = new OpenAI();
 
 // WebSocket server variables
 const sockets = [];
+
+// Similar to Android context? Will store things like verification codes and such
+const context = {};
 
 // Create an HTTP server
 const server = http.createServer((req, res) => {
@@ -155,6 +162,9 @@ const rl = readline.createInterface({
     output: process.stdout
 });
 
+const ApiRecommendation = z.object({
+    apiName: z.string()
+});
 
 // This handles raw input by sending it to ChatGPT and doing stuff.
 // Eventually we get to the point where we just give it the DOM, plus the click&type commands. 
@@ -164,15 +174,16 @@ const processCommand = async input => {
     //console.log(JSON.stringify(partifulApi.map(x => {x.name, x.description, x.params})))
     //console.log(summaryForLLM);
 
-    console.log(`Given the user request "${input}" and the available APIs:\n${summaryForLLM}, return the name of the API to use to fulfill the users request.`)
+    const prompt = `Given the user request "${input}" and the available APIs:\n${summaryForLLM}, return the name of the API to use to fulfill the users request.`;
 
     const completion = await client.beta.chat.completions.parse({
-        model: 'gpt-4o-2024-08-06',
+        model: 'gpt-4o-mini',
         messages: [
-            { role: 'system', content: 'You are a helpful assistant. The current date is August 6, 2024. You help users query for the data they are looking for by calling the query function.' },
-            { role: 'user', content: 'look up all my orders in may of last year that were fulfilled but not delivered on time' }
+            { role: 'system', content: 'You are a helpful assistant. Only use the schema for responses.' },
+            { role: 'user', content: prompt }
         ],
-        tools: [zodFunction({ name: 'query', parameters: QueryArgs })],
+        response_format: zodResponseFormat(ApiRecommendation, 'apiRecommendation')
+        
     });
     console.log(JSON.stringify(completion));
 
