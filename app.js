@@ -7,7 +7,8 @@ const OpenAI = require('openai');
 const { zodResponseFormat } = require('openai/helpers/zod');
 const { z } = require('zod');
 
-const {partifulApi, summaryForLLM} = require('./partiful')
+const { partifulApi, summaryForLLM } = require('./partiful');
+const { parse } = require('path');
 
 const client = new OpenAI();
 
@@ -166,6 +167,81 @@ const ApiRecommendation = z.object({
     apiName: z.string()
 });
 
+const orchestrateApi = async apiName => {
+    const api = partifulApi.find(x => x.name === apiName);
+    if (!api) {
+        console.log('Recommended API does not exist in predefined APIs');
+        return;
+    }
+
+    // loop through commands and send them to the chrome extension
+
+    // Not needed yet, but we'll do something like this to pass params to the calls
+    const populatedParams = Object.fromEntries(api.params.map(p => [p.name, context[p.name]]));
+
+
+    console.log(`Executing ${api.name}`);
+
+    let last;
+
+    for (let i = 0; i < api.commands.length; i++) {
+        let command = api.commands[i];
+        last = await sendCommand(command);
+    }
+    console.log("Action orchestrated")
+    console.log(`Final action returned: ${last}`);
+    // "last" should also be sent to the LLM to answer the original question
+
+    const prompt = `Given the user request "${input}" and the info available after calling and API:\n${last}, answer the request in detail, even if it's just a confirmation of completing the request`;
+
+    const completion = await client.beta.chat.completions.parse({
+        model: 'gpt-4o-mini',
+        messages: [
+            { role: 'system', content: 'You are a helpful assistant.' },
+            { role: 'user', content: prompt }
+        ],
+        //response_format: zodResponseFormat(ApiRecommendation, 'apiRecommendation')
+
+    });
+    const message = completion.choices[0]?.message;
+    console.log(message);
+}
+
+const sendCommand = (command) => {
+    return new Promise((resolve, reject) => {
+        const message = createWebSocketFrame(JSON.stringify(command));
+        console.log(`Sending message to ${sockets.length} sockets`);
+        sockets.forEach((socket) => {
+            const onMessage = buffer => {
+                try {
+                    const response = parseWebSocketFrame(buffer);
+                    if (response) {
+                        const parsedResponse = JSON.parse(response); 
+                        if (parsedResponse.type === command.type) {
+                            console.log(`Received response for action on: ${parsedResponse}`);
+                            // Clean up the event listener
+                            socket.removeListener('data', onMessage);
+                            resolve(parsedResponse);
+                        } else {
+                            console.log(`Received response for action on: ${parsedResponse}`);
+                            // Clean up the event listener
+                            socket.removeListener('data', onMessage);
+                            resolve(parsedResponse);
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error processing WebSocket response:', error);
+                    reject(error);
+                }
+            };
+
+            socket.write(message);
+        })
+
+    })
+
+}
+
 // This handles raw input by sending it to ChatGPT and doing stuff.
 // Eventually we get to the point where we just give it the DOM, plus the click&type commands. 
 // But for now we have "APIs" that bundle a bunch of commands
@@ -183,9 +259,17 @@ const processCommand = async input => {
             { role: 'user', content: prompt }
         ],
         response_format: zodResponseFormat(ApiRecommendation, 'apiRecommendation')
-        
+
     });
-    console.log(JSON.stringify(completion));
+    const message = completion.choices[0]?.message;
+    if (message?.parsed) {
+        const recommendation = message.parsed.apiName;
+        console.log(`4o-mini suggests ${recommendation}`);
+
+        orchestrateApi(recommendation);
+    } else {
+        console.log(message.refusal);
+    }
 
 }
 

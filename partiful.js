@@ -28,9 +28,15 @@ const partifulApi = [
         name: 'View events',
         description: 'View upcoming events',
         params: [],
-        startUrl: `https://partiful.com/events`,
         commands: [
-            `detail NW3wSM > *`
+            {
+                type: 'load',
+                url: 'https://partiful.com/events'
+            }, 
+            {
+                type: 'detail',
+                selector: `detail NW3wSM > *`
+            }
         ]
     }
 ];
