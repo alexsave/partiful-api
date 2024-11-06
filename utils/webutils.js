@@ -121,7 +121,7 @@ const initializeServer = () => {
             try {
                 const message = parseWebSocketFrame(buffer);
                 if (message) {
-                    console.log('Received:', message);
+                    console.log('Global received:', message);
 
                     // Respond to the client
                     //const reply = createWebSocketFrame(JSON.stringify({action: 'get-actions'}));
@@ -173,6 +173,7 @@ const sendCommand = (command) => {
             };
 
             socket.write(message);
+            socket.on('data', onMessage);
         })
 
     })
