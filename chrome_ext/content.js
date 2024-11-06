@@ -79,7 +79,9 @@ const actions = {
     }, 
     
     'load': ({url}) => {
-        console.log('load ' + url + ' requested');
+        let x = 'load ' + url + ' requested';
+        console.log(x);
+        return x;
     }
 };
 
@@ -88,18 +90,18 @@ const actions = {
 // Listen for messages from background.js
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    const { action, params } = request;
+    const { type } = request;
     console.log('received message from background: ' + JSON.stringify(request))
 
-    if (actions[action]) {
+    if (actions[type]) {
         let result;
         try {
-            result = actions[action](params);
+            result = actions[type](request);
         } catch (e) {
             result = `Error executing action: ${e.message}`;
         }
         sendResponse({ result });
     } else {
-        sendResponse({ result: `Unknown action requested: ${action}` });
+        sendResponse({ result: `Unknown action requested: ${type}` });
     }
 });

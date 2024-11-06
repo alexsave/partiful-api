@@ -36,21 +36,32 @@ function connectWebSocket() {
             return;
         }
 
-        const { type, params } = parsedData;
-        console.log(type, params);
+        const { type } = parsedData;
+        console.log(type);
 
-        //if (actions[action]) {
         let result;
         try {
-            // For actions that require DOM manipulation, execute code in the content script
-            //if (['get-dom', 'click', 'type', 'upload'].includes(action)) {
-            chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-                chrome.tabs.sendMessage(tabs[0].id, parsedData, (results) => {
-                    console.log(results);
-                    result = results[0].result;
-                    socket.send(JSON.stringify({ type: 'result', result }));
+            if (['load'].includes(type)) {
+                // This needs to be done here, not in content scripts
+                chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+                    chrome.tabs.update(tabs[0].id, { url: parsedData.url/*||'https://partiful.com'*/ }, (tab) => {
+                        socket.send(JSON.stringify({type: type, 'result': `Tab ${tab.id} navigating to ${tab.pendingUrl}.`}))
+                    })
                 });
-            });
+            } else {
+
+                //if (actions[action]) {
+                // For actions that require DOM manipulation, execute code in the content script
+                //if (['get-dom', 'click', 'type', 'upload'].includes(action)) {
+                chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+                    chrome.tabs.sendMessage(tabs[0].id, parsedData, (results) => {
+                        console.log(results);
+                        result = results.result;
+                        socket.send(JSON.stringify({ type: 'result', result }));
+                    });
+                });
+            }
+
             //} else {
             //result = actions[action](params);
             //socket.send(JSON.stringify({ type: 'result', result }));
