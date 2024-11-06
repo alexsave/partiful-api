@@ -2,6 +2,17 @@
 // This could match https://platform.openai.com/docs/actions/getting-started better, but maybe this is enough
 const partifulApi = [
     {
+        name: "Create event",
+        description: "Create a new partiful event",
+        params: [],
+        commands: [
+            {
+                type: 'load',
+                url: 'https://partiful.com/create'
+            }
+        ]
+    },
+    {
         name: 'Login',
         description: 'Log in to partiful',
         params: [
