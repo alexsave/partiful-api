@@ -119,14 +119,15 @@ const initializeServer = () => {
         // Start listening for data from the client
         socket.on('data', (buffer) => {
             try {
-                const message = parseWebSocketFrame(buffer);
-                if (message) {
-                    console.log('Global received:', message);
+                // It doesn't like it when both are listening
+                //const message = parseWebSocketFrame(buffer);
+                //if (message) {
+                    //console.log('Global received:', message);
 
                     // Respond to the client
                     //const reply = createWebSocketFrame(JSON.stringify({action: 'get-actions'}));
                     //socket.write(reply);
-                }
+                //}
             } catch (err) {
                 console.error('Error processing message:', err);
                 socket.destroy(); // Safely close the connection on error

@@ -1,6 +1,6 @@
 
 // Define available actions that involve DOM manipulation
-const actions = {
+/*const actions = {
     'get-actions': () => {
         return {
             'get-dom': 'Returns a stripped-down version of the DOM',
@@ -10,7 +10,7 @@ const actions = {
             'load': 'Loads a website'
         };
     }
-};
+};*/
 
 let socket;
 const serverUrl = 'ws://localhost:3001';
@@ -50,15 +50,33 @@ function connectWebSocket() {
                 });
             } else {
 
+
                 //if (actions[action]) {
                 // For actions that require DOM manipulation, execute code in the content script
                 //if (['get-dom', 'click', 'type', 'upload'].includes(action)) {
                 chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-                    chrome.tabs.sendMessage(tabs[0].id, parsedData, (results) => {
-                        console.log(results);
-                        result = results.result;
-                        socket.send(JSON.stringify({ type: 'result', result }));
-                    });
+                    // Annoying but we do need to wait for the next page to load when we navigate
+                    const tabSend = () => {
+                        chrome.tabs.sendMessage(tabs[0].id, parsedData, (results) => {
+                            console.log(results);
+                            //result = results.result;
+                            // forward it back to the server
+                            socket.send(JSON.stringify(results));
+                        });
+                    }
+                    if (tabs[0].status === 'complete') {
+                        tabSend();
+                    } else {
+                        const interval = setInterval(() => {
+                            console.log('was busy, trying again')
+                            chrome.tabs.get(tabs[0].id, updatedTab => {
+                                if (updatedTab.status === 'complete') {
+                                    clearInterval(interval);
+                                    tabSend();
+                                }
+                            });
+                        }, 1000);
+                    }
                 });
             }
 

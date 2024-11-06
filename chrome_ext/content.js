@@ -1,59 +1,100 @@
-// Define the available DOM actions in content.js
-const actions = {
-    'get-dom': () => {
-        // Create a clone of the document to avoid modifying the original DOM
-        const clonedDocument = document.cloneNode(true);
+const waitForNetworkIdle = (timeout = 1000, checkInterval=1000) => {
+    return new Promise(resolve => {
+        let lastActiveTimestamp = Date.now();
 
-        // Remove <script> and <style> tags from the cloned document
-        clonedDocument.querySelectorAll('script, style').forEach(element => element.remove());
-
-        // Remove style attributes from all elements
-        clonedDocument.querySelectorAll('[style]').forEach(element => element.removeAttribute('style'));
-
-        // Remove all comments
-        clonedDocument.querySelectorAll('*').forEach(element => {
-            [...element.childNodes].forEach(child => {
-                if (child.nodeType === Node.COMMENT_NODE) {
-                    child.remove();
-                }
-            });
-        });
-
-        // Keep only buttons, inputs, <a> tags, and text nodes in their original order
-        const walker = document.createTreeWalker(clonedDocument, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
-            acceptNode: (node) => {
-                if (node.nodeType === Node.TEXT_NODE && node.textContent.trim() !== '') {
-                    return NodeFilter.FILTER_ACCEPT;
-                } else if (node.nodeType === Node.ELEMENT_NODE && (node.tagName.toLowerCase() === 'button' || node.tagName.toLowerCase() === 'input' || node.tagName.toLowerCase() === 'a')) {
-                    return NodeFilter.FILTER_ACCEPT;
-                }
-                return NodeFilter.FILTER_SKIP;
+        const check = () => {
+            const now = Date.now();
+            if (now - lastActiveTimestamp >= checkInterval) {
+                console.log('resolving', now, lastActiveTimestamp)
+                resolve();
+            } else {
+                setTimeout(check, checkInterval);
             }
-        });
+        };
 
-        let simplifiedDom = '';
-        let currentNode;
-        while ((currentNode = walker.nextNode())) {
-            if (currentNode.nodeType === Node.TEXT_NODE) {
-                simplifiedDom += `<div>${currentNode.textContent.trim()}</div>`;
-            } else if (currentNode.nodeType === Node.ELEMENT_NODE) {
-                simplifiedDom += `<${currentNode.tagName.toLowerCase()} id="${currentNode.id}" class="${currentNode.className}">`;
-            }
-            if (currentNode.nodeType === Node.ELEMENT_NODE && (currentNode.tagName.toLowerCase() === 'button' || currentNode.tagName.toLowerCase() === 'a')) {
-                let nextNode = walker.nextNode();
-                if (nextNode && nextNode.nodeType === Node.TEXT_NODE) {
-                    simplifiedDom += nextNode.textContent.trim();
-                }
-                simplifiedDom += `</${currentNode.tagName.toLowerCase()}>`;
-            }
+        const updateLastActiveTimestamp = () => {
+            lastActiveTimestamp = Date.now();
         }
 
-        // Remove multiple empty lines from the resulting string
-        simplifiedDom = simplifiedDom.replace(/\n{2,}/g, '\n');
-        return simplifiedDom;
-    },
+        const originalFetch = window.fetch;
+        window.fetch = (...args) => {
+            updateLastActiveTimestamp();
+            return originalFetch.apply(this,args);
+        }
+        const originalXHROpen = XMLHttpRequest.prototype.open;
+        XMLHttpRequest.prototype.open = (...args) => {
+            this.addEventListener('readystatechange', updateLastActiveTimestamp, true);
+            originalXHROpen.apply(this, args);
+        }
+        check();
+    })
+};
 
-    'click': ({ selector }) => {
+const simpleDom = async () => {
+    // Create a clone of the document to avoid modifying the original DOM
+    const clonedDocument = document.cloneNode(true);
+
+    // Remove <script> and <style> tags from the cloned document
+    clonedDocument.querySelectorAll('script, style').forEach(element => element.remove());
+
+    // Remove style attributes from all elements
+    clonedDocument.querySelectorAll('[style]').forEach(element => element.removeAttribute('style'));
+
+    // Remove all comments
+    clonedDocument.querySelectorAll('*').forEach(element => {
+        [...element.childNodes].forEach(child => {
+            if (child.nodeType === Node.COMMENT_NODE) {
+                child.remove();
+            }
+        });
+    });
+
+    // Keep only buttons, inputs, <a> tags, and text nodes in their original order
+    const walker = document.createTreeWalker(clonedDocument, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+        acceptNode: (node) => {
+            if (node.nodeType === Node.TEXT_NODE && node.textContent.trim() !== '') {
+                return NodeFilter.FILTER_ACCEPT;
+            } else if (node.nodeType === Node.ELEMENT_NODE && (node.tagName.toLowerCase() === 'button' || node.tagName.toLowerCase() === 'input' || node.tagName.toLowerCase() === 'a')) {
+                return NodeFilter.FILTER_ACCEPT;
+            }
+            return NodeFilter.FILTER_SKIP;
+        }
+    });
+
+    let simplifiedDom = '';
+    let currentNode;
+    while ((currentNode = walker.nextNode())) {
+        if (currentNode.nodeType === Node.TEXT_NODE) {
+            simplifiedDom += `<div>${currentNode.textContent.trim()}</div>`;
+        } else if (currentNode.nodeType === Node.ELEMENT_NODE) {
+            simplifiedDom += `<${currentNode.tagName.toLowerCase()} id="${currentNode.id}" class="${currentNode.className}">`;
+        }
+        if (currentNode.nodeType === Node.ELEMENT_NODE && (currentNode.tagName.toLowerCase() === 'button' || currentNode.tagName.toLowerCase() === 'a')) {
+            let nextNode = walker.nextNode();
+            if (nextNode && nextNode.nodeType === Node.TEXT_NODE) {
+                simplifiedDom += nextNode.textContent.trim();
+            }
+            simplifiedDom += `</${currentNode.tagName.toLowerCase()}>`;
+        }
+    }
+
+    // Remove multiple empty lines from the resulting string
+    simplifiedDom = simplifiedDom.replace(/\n{2,}/g, '\n');
+    return simplifiedDom;
+}
+
+// Define the available DOM actions in content.js
+const actions = {
+    'get-summary': async () => {
+        await waitForNetworkIdle();
+        return {
+            domSummary: await simpleDom(),
+            url: window.location.href
+        }
+    },
+    'get-dom': simpleDom,
+
+    'click': async ({ selector }) => {
         const element = document.querySelector(selector);
         if (element) {
             element.click();
@@ -63,7 +104,7 @@ const actions = {
         }
     },
 
-    'type': ({ selector, text }) => {
+    'type': async ({ selector, text }) => {
         const element = document.querySelector(selector);
         if (element && (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA')) {
             element.value = text;
@@ -74,14 +115,11 @@ const actions = {
         }
     },
 
-    'upload': ({ selector, fileLocation }) => {
-        return `Error: File uploads must be manually initiated by the user.`;
-    }, 
-    
-    'load': ({url}) => {
-        let x = 'load ' + url + ' requested';
-        console.log(x);
-        return x;
+    'upload': async ({ selector, fileLocation }) => {
+    },
+
+    'load': async ({ url }) => {
+        return `Error: Can't load from here`;
     }
 };
 
@@ -90,18 +128,26 @@ const actions = {
 // Listen for messages from background.js
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    const { type } = request;
-    console.log('received message from background: ' + JSON.stringify(request))
+    (async () => {
+        const { type } = request;
+        console.log('received message from background: ' + JSON.stringify(request))
 
-    if (actions[type]) {
-        let result;
-        try {
-            result = actions[type](request);
-        } catch (e) {
-            result = `Error executing action: ${e.message}`;
+        if (actions[type]) {
+            let result;
+            try {
+                result = await actions[type](request);
+            } catch (e) {
+                result = `Error executing action: ${e.message}`;
+            }
+            try {
+                console.log(JSON.stringify(result));
+                sendResponse({ type, result });
+            } catch (e) {
+                result = `Error doing something: ${e.message}`;
+            }
+        } else {
+            sendResponse({ type, result: `Unknown action requested: ${type}` });
         }
-        sendResponse({ result });
-    } else {
-        sendResponse({ result: `Unknown action requested: ${type}` });
-    }
+    })();
+    return true;
 });

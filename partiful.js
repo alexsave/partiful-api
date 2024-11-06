@@ -5,6 +5,7 @@ const partifulApi = [
         name: "Create event",
         description: "Create a new partiful event",
         params: [],
+        startUrl: 'https://partiful.com/create',
         commands: [
             {
                 type: 'load',
