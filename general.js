@@ -1,8 +1,22 @@
 // "APIs" for partiful
-// This isn't the worst idea to hard code some thigns, but I'm going to try to make something more general
 // This could match https://platform.openai.com/docs/actions/getting-started better, but maybe this is enough
-const partifulApi = [
+const generalApi = [
     {
+        name: "Load",
+        description: "Opens a website given a url",
+        params: [{
+            name: 'url',
+            description: 'The url to load'
+        }],
+        commands: [
+            {
+                type: 'load',
+                // pas in as paramter
+                url: x=>x
+            }
+        ]
+    }
+    /*{
         name: "Create event",
         description: "Create a new partiful event",
         params: [],
@@ -51,12 +65,12 @@ const partifulApi = [
                 selector: `detail NW3wSM > *`
             }
         ]
-    }
+    }*/
 ];
 
 module.exports = {
-    partifulApi,
-    summaryForLLM: partifulApi.map(x => {
+    generalApi,
+    summary: generalApi.map(x => {
         return JSON.stringify({ name: x.name, description: x.description, params: x.params });
     }).join('\n')
 }

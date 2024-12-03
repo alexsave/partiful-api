@@ -1,0 +1,1 @@
+I think the only thing you need to do manually is install the chrome extension
