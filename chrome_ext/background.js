@@ -43,10 +43,14 @@ function connectWebSocket() {
         try {
             if (['load'].includes(type)) {
                 // This needs to be done here, not in content scripts
-                chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-                    chrome.tabs.update(tabs[0].id, { url: parsedData.url/*||'https://partiful.com'*/ }, (tab) => {
+                /*chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+                    chrome.tabs.update(tabs[0].id, { url: parsedData.url }, (tab) => {
                         socket.send(JSON.stringify({type: type, 'result': `Tab ${tab.id} navigating to ${tab.pendingUrl}.`}))
                     })
+                });*/
+
+                chrome.tabs.create({ url: parsedData.value }, (tab) => {
+                    socket.send(JSON.stringify({ type: type, result: `New tab ${tab.id} opened and navigating to ${tab.pendingUrl || tab.url}.` }));
                 });
             } else {
 
