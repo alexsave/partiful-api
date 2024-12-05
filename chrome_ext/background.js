@@ -11,6 +11,9 @@
         };
     }
 };*/
+chrome.runtime.onStartup.addListener( () => {
+    console.log(`onStartup()`);
+});
 
 let socket;
 const serverUrl = 'ws://localhost:3001';
@@ -49,8 +52,36 @@ function connectWebSocket() {
                     })
                 });*/
 
-                chrome.tabs.create({ url: parsedData.value }, (tab) => {
-                    socket.send(JSON.stringify({ type: type, result: `New tab ${tab.id} opened and navigating to ${tab.pendingUrl || tab.url}.` }));
+                // Step 6 open new tab
+                chrome.tabs.create({ url: parsedData.url }, (tab) => {
+                    // Log message that we're opening the tab
+                    //socket.send(JSON.stringify({ type: type, result: `New tab ${tab.id} opened and navigating to ${tab.pendingUrl || tab.url}.` }));
+
+                    // Step 7 wait for load
+                    // todo extract this to helper
+                    const tabSend = () => {
+                        // Step 8 requrest DOM
+                        chrome.tabs.sendMessage(tab.id, {type: 'get-summary'}, (results) => {
+                            console.log(results);
+                            //result = results.result;
+                            // forward it back to the server
+                            // Step 10 send dom back to server
+                            socket.send(JSON.stringify(results));
+                        });
+                    }
+                    if (tab.status === 'complete') {
+                        tabSend();
+                    } else {
+                        const interval = setInterval(() => {
+                            console.log('was busy, trying again')
+                            chrome.tabs.get(tab.id, updatedTab => {
+                                if (updatedTab.status === 'complete') {
+                                    clearInterval(interval);
+                                    tabSend();
+                                }
+                            });
+                        }, 1000);
+                    }
                 });
             } else {
 

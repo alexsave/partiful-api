@@ -26,6 +26,11 @@ const BROWSER = "Google Chrome"
 // hmm so there's almost another level to this, where we should open chrome directly to a page if it's not open already
 // but i'll get to that later. for now we just open chrome to idk google.com
 
+/*
+start chrome with --remote-debugging-port=<someport>
+before an event where you want to ensure the servce worker is up (in my case it was sending a websocket event to the chrome extension)
+import CDP from "chrome-remote-interface" const cdpOpts = { port: , host: "0.0.0.0" } const scopeUrl="chrome-extension://pifdfbadejagoljdhnlmldpcnlfankli/" // replace with your own extension id which can be seen in the extension tab const client = await CDP(cdpOpts) await client.send("ServiceWorker.enable") await client.send("ServiceWorker.startWorker", { scopeURL })
+*/
 // check if chrome is open, if not open it to some home page
 const command = `pgrep -x "${BROWSER}" > /dev/null || open -a "${BROWSER}" ${DEFAULT_HOME}`
 // Execute the command
@@ -55,6 +60,7 @@ const ApiRecommendation = z.object({
     apiName: z.string().describe("The name of the API")
 });
 
+// some of the constants should be moved to a constants file located in chrome ext, because they are shared
 const BrowserAction = z.object({
     type: z.enum(['click', 'keyboard']).describe("The action that will be taken"),
     selector: z.string().describe("A CSS selector that the action will be ran on, this will be passed to document.querySelector()"),
@@ -67,19 +73,32 @@ const ActionRecommendation = z.object({
 })
 
 const KeyboardAction = z.object({
-    type: z.enum(['keyboard']).describe("The action that will be taken"),
+    //type: z.enum(['keyboard']).describe("The action that will be taken"),
+    value: z.string().describe("The value that will be typed into input or textarea divs"),
     selector: z.string().describe("A CSS selector that the action will be ran on, this will be passed to document.querySelector()"),
-    value: z.string().describe("The value that will be typed into input or textarea divs")
 });
 
 const ClickAction = z.object({
-    type: z.enum(['click']).describe("The action that will be taken"),
+    //type: z.enum(['click']).describe("The action that will be taken"),
     selector: z.string().describe("A CSS selector will be clicked, this will be passed to document.querySelector()"),
 });
 
 const LoadAction = z.object({
     type: z.enum(['load']).describe("The action that will be taken"),
-    value: z.string().describe("The url that will be loaded")
+    url: z.string().describe("The url that will be loaded")
+});
+
+const UrlAction = z.object({
+    url: z.string().describe("The url that will be loaded")
+});
+
+const GoogleAction = z.object({
+    query: z.string().describe("The query that will be searched on Google")
+});
+
+const InitialAction = z.object({
+    type: z.enum(['urlload', 'googlesearch']).describe("The action that will be taken"),
+    action: z.union([UrlAction, GoogleAction]).describe("The first action that will be ran in the browser"),
 });
 
 const GeneralActions = z.object({
@@ -165,26 +184,47 @@ const orchestrateApi = async (apiName, input) => {
     console.log(message);*/
 }
 
+const buildInitialPrompt = () => {
+    return `Work step-by-step to fulfill the user request "${context.topLevelCommand}". The first step is to determine which URL to load to start fulfillilng the request. Return the first url necessary to navigate to fulfill the users request. If you're not sure, you can start with a Google search, in which case provide a query to search for.`;
+}
+
+
 const processCommand = async input => {
-    //console.log(input);
-    //console.log(JSON.stringify(partifulApi.map(x => {x.name, x.description, x.params})))
-    //console.log(summaryForLLM);
 
-    // OK the load API is correctly identified
-    //const prompt = `Given the user request "${input}" and the available APIs:\n${summary}, return the name of the API to use to fulfill the users request.`;
-    const prompt = `Given the user request "${input}" and the available APIs:\n${summary}, return a list of actions necessary to be taken to use to fulfill the users request.`;
+    // Step 1 get command
+    context.topLevelCommand = input;
 
+    // Step 2 build initial prompt (just load page)
+    const prompt = buildInitialPrompt();
+
+    // step 3 send it to LLM 
     const completion = await client.beta.chat.completions.parse({
         model: 'gpt-4o-mini',
+        // should we save these in context?
         messages: [
             { role: 'system', content: 'You are a helpful assistant. Only use the schema for responses.' },
             { role: 'user', content: prompt }
         ],
-        response_format: zodResponseFormat(GeneralActions, 'generalActions')
+        response_format: zodResponseFormat(InitialAction, 'initialAction')
 
     });
+
+    // step 4 get structured response back
     const message = completion.choices[0]?.message;
-    console.log(JSON.stringify(message));
+    console.log(message.parsed)
+    if (message?.parsed) {
+        const {type} = message.parsed;
+        if (type === 'googlesearch') {
+            // TODO implement new action in the ext
+        } else if (type === 'urlload') {
+            console.log(message.parsed)
+            const url = message.parsed.action.url;
+            loadInitialPage(url);
+        }
+    }
+    
+    /*
+
     if (message?.parsed) {
         console.log(message);
         console.log(message.parsed);
@@ -196,7 +236,65 @@ const processCommand = async input => {
         //orchestrateApi(recommendation, input);
     } else {
         console.log(message.refusal);
+    }*/
+
+}
+
+const CompletionAction = z.object({
+    message: z.string().describe("A string to display to the user after the request is fulfilled, answering the question or a successful status.")
+});
+
+const UserAction = z.object({
+    interactMessage: z.string().describe("A string to display to the user when the website requires human interaction.")
+})
+
+const NextAction = z.object({
+    done: z.boolean().describe("A boolean indicating if the request has been fulfilled"),
+    type: z.enum(['complete', 'urlload', 'googlesearch', 'click', 'keyboard', 'user']).describe("The action that will be taken"),
+    action: z.union([CompletionAction, UrlAction, GoogleAction, ClickAction, KeyboardAction, UserAction]).describe("The next action that will be ran in the browser, or a confirmation of completion"),
+});
+
+const loadInitialPage = async url => {
+    // Step 5
+    let domSummary = await sendCommand({ type: 'load', url: url });
+    // Step 11 get dom summary back in the server
+    console.log(JSON.stringify(domSummary))
+
+    // Step 12 build next prompot
+    //const prompt = `Given the browser summary after loading url "${url}": "${JSON.stringify(domSummary)}" and the user request "${context.topLevelCommand}", answer the request in detail, even if it's just a confirmation of completing the request`;
+    const prompt = `Given a summary of a website ${JSON.stringify(domSummary)}, context information ${JSON.stringify(context)}, and the user request ${context.topLevelCommand}, come up with the next action to proceed with fulfilling the request, if necessary. You can click on divs, input text to divs, and load urls. If you need more information from the user to complete the actions on the page, fill in a message to the user asking for additional parameters. If you think the request has been fulfilled, then come up with a success message.`
+
+    // Step 13 send results + command back to GPT to determine if complete
+
+
+    const completion = await client.beta.chat.completions.parse({
+        model: 'gpt-4o-mini',
+        messages: [
+            { role: 'system', content: 'You are a helpful assistant. Only use the schema for responses.' },
+            { role: 'user', content: prompt }
+        ],
+        response_format: zodResponseFormat(NextAction, 'nextAction')
+
+    });
+
+    // Step 14 get response back
+
+    if (true){
+        // Step 15a: you're done
+        const message = completion.choices[0]?.message;
+        console.log(JSON.stringify(message));
+
+        // clear context
+        delete context.topLevelCommand;
+        return;
     }
+
+
+
+
+
+   // await sendCommand({ type: 'get-summary' })
+    exit(-1);
 
 }
 
