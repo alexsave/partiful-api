@@ -66,9 +66,9 @@ const cdpOpts = { port: 9222, host: "0.0.0.0" }
 const scopeUrl = "chrome-extension://jopnjjlijghkbopccilgaglodjaiohlm/"; // replace with your own extension id which can be seen in the extension tab 
 setTimeout(_ => {
     (async () => {
-        console.log('connecting to chrome');
+        //console.log('connecting to chrome');
         const debugClient = await CDP(cdpOpts);
-        console.log('client connected');
+        //console.log('client connected');
         //const { Runtime, Page } = debugClient;
         // Enable Runtime to execute script
         //await Runtime.enable();
@@ -93,11 +93,11 @@ setTimeout(_ => {
         // if this works we should probably only call this right before a command
         // it does work
         setInterval(async _ => {
-            console.log('waking up worker')
+            //console.log('waking up worker')
             await debugClient.send("ServiceWorker.enable")
             await debugClient.send("ServiceWorker.startWorker", { scopeURL: scopeUrl })
 
-        }, 29000 )
+        }, 2000 )
 
     })()
 }, 5000);
@@ -120,7 +120,7 @@ const ApiRecommendation = z.object({
 // some of the constants should be moved to a constants file located in chrome ext, because they are shared
 const BrowserAction = z.object({
     type: z.enum(['click', 'keyboard']).describe("The action that will be taken"),
-    selector: z.string().describe("A CSS selector that the action will be ran on, this will be passed to document.querySelector()"),
+    selector: z.string().describe("A CSS selector that the action will be ran on, this will be passed to document.querySelector(). :contains is not a valid selector"),
     value: z.string().describe("The value that will be typed into input or textarea divs")
 });
 
@@ -312,38 +312,55 @@ const NextAction = z.object({
 });
 
 const loadInitialPage = async url => {
+    let cmd = {type: 'load', url:url};
+    context.steps = [cmd]
     // Step 5
     let domSummary = await sendCommand({ type: 'load', url: url });
-    // Step 11 get dom summary back in the server
-    console.log(JSON.stringify(domSummary))
+    while (true) {
 
-    // Step 12 build next prompot
-    //const prompt = `Given the browser summary after loading url "${url}": "${JSON.stringify(domSummary)}" and the user request "${context.topLevelCommand}", answer the request in detail, even if it's just a confirmation of completing the request`;
-    const prompt = `Given a summary of a website ${JSON.stringify(domSummary)}, context information ${JSON.stringify(context)}, and the user request ${context.topLevelCommand}, come up with the next action to proceed with fulfilling the request, if necessary. You can click on divs, input text to divs, and load urls. If you need more information from the user to complete the actions on the page, fill in a message to the user asking for additional parameters. If you think the request has been fulfilled, then come up with a success message.`
+        // Step 11 get dom summary back in the server
+        console.log(JSON.stringify(domSummary))
 
-    // Step 13 send results + command back to GPT to determine if complete
+        // Step 12 build next prompot
+        //const prompt = `Given the browser summary after loading url "${url}": "${JSON.stringify(domSummary)}" and the user request "${context.topLevelCommand}", answer the request in detail, even if it's just a confirmation of completing the request`;
+        //const prompt = `Given a summary of a website ${JSON.stringify(domSummary)}, context information ${JSON.stringify(context)}, and the user request ${context.topLevelCommand}, come up with the next action to proceed with fulfilling the request, if necessary. You can click on divs, input text to divs, and load urls. If you need more information from the user to complete the actions on the page, fill in a message to the user asking for additional parameters. If you think the request has been fulfilled, then come up with a success message.`
+        const prompt = `Given a summary of a website ${JSON.stringify(domSummary)}, previous actions "${JSON.stringify(context.steps)}", and the user request ${context.topLevelCommand}, come up with the next action to proceed with fulfilling the request, if necessary. You can click on divs, input text to divs, and load urls. You can even search on websites by clicking on text bars. If you need more information from the user to complete the actions on the page, fill in a message to the user asking for additional parameters. If you think the request has been fulfilled, then come up with a success message.`
+
+        // Step 13 send results + command back to GPT to determine if complete
 
 
-    const completion = await client.beta.chat.completions.parse({
-        model: 'gpt-4o-mini',
-        messages: [
-            { role: 'system', content: 'You are a helpful assistant. Only use the schema for responses.' },
-            { role: 'user', content: prompt }
-        ],
-        response_format: zodResponseFormat(NextAction, 'nextAction')
+        const completion = await client.beta.chat.completions.parse({
+            model: 'gpt-4o-mini',
+            messages: [
+                { role: 'system', content: 'You are a helpful assistant. Only use the schema for responses.' },
+                { role: 'user', content: prompt }
+            ],
+            response_format: zodResponseFormat(NextAction, 'nextAction')
 
-    });
+        });
 
-    // Step 14 get response back
-
-    if (true) {
-        // Step 15a: you're done
+        // Step 14 get response back
         const message = completion.choices[0]?.message;
-        console.log(JSON.stringify(message));
 
-        // clear context
-        delete context.topLevelCommand;
-        return;
+        if (message.parsed.done ) {
+            // Step 15a: you're done
+            console.log(message.parsed);
+
+            // clear context
+            delete context.topLevelCommand;
+            // break out
+            console.log('done!')
+            return;
+        } else {
+            // ok it does seem that here, chat comes up with the proper next step. but it doesn't quite get to the page somehow
+            console.log(message.parsed);
+            // Step 15b: next command
+            // maybe we need to parse action, or maybe it's good as is
+            context.steps.push(message.parsed);
+            let domSummary = await sendCommand(message.parsed);
+            //Received response for action on: {"type":"result","result":"Error executing action: Cannot read properties of null (reading 'status')"}
+
+        }
     }
 
 

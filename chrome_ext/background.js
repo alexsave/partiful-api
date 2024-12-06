@@ -19,6 +19,8 @@
 let socket;
 const serverUrl = 'ws://localhost:3001';
 
+let sessionTab = null;
+
 function connectWebSocket() {
     // Create a WebSocket connection to the server
     socket = new WebSocket('ws://localhost:3001');
@@ -71,6 +73,7 @@ function connectWebSocket() {
                         });
                     }
                     if (tab.status === 'complete') {
+                        sessionTab = tab;
                         tabSend();
                     } else {
                         const interval = setInterval(() => {
@@ -90,22 +93,22 @@ function connectWebSocket() {
                 //if (actions[action]) {
                 // For actions that require DOM manipulation, execute code in the content script
                 //if (['get-dom', 'click', 'type', 'upload'].includes(action)) {
-                chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+                //chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
                     // Annoying but we do need to wait for the next page to load when we navigate
                     const tabSend = () => {
-                        chrome.tabs.sendMessage(tabs[0].id, parsedData, (results) => {
+                        chrome.tabs.sendMessage(sessionTab.id, parsedData, (results) => {
                             console.log(results);
                             //result = results.result;
                             // forward it back to the server
                             socket.send(JSON.stringify(results));
                         });
                     }
-                    if (tabs[0].status === 'complete') {
+                    if (sessionTab.status === 'complete') {
                         tabSend();
                     } else {
                         const interval = setInterval(() => {
                             console.log('was busy, trying again')
-                            chrome.tabs.get(tabs[0].id, updatedTab => {
+                            chrome.tabs.get(sessionTab.id, updatedTab => {
                                 if (updatedTab.status === 'complete') {
                                     clearInterval(interval);
                                     tabSend();
@@ -113,7 +116,7 @@ function connectWebSocket() {
                             });
                         }, 1000);
                     }
-                });
+                //});
             }
 
             //} else {

@@ -94,13 +94,13 @@ const actions = {
     },
     'get-dom': simpleDom,
 
-    'click': async ({ selector }) => {
-        const element = document.querySelector(selector);
+    'click': async ({ action }) => {
+        const element = document.querySelector(action.selector);
         if (element) {
             element.click();
-            return `Clicked element: ${selector}`;
+            return `Clicked element: ${action.selector}`;
         } else {
-            return `Error: Element not found for selector: ${selector}`;
+            return `Error: Element not found for selector: ${action.selector}`;
         }
     },
 
