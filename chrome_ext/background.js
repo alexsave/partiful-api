@@ -11,9 +11,10 @@
         };
     }
 };*/
-chrome.runtime.onStartup.addListener( () => {
-    console.log(`onStartup()`);
-});
+// wake up immediately
+//chrome.runtime.onStartup.addListener( () => {
+    //console.log(`onStartup()`);
+//});
 
 let socket;
 const serverUrl = 'ws://localhost:3001';
@@ -181,3 +182,10 @@ setInterval(() => {
         }
     }
 }, 10000);
+
+// Keep alive?
+setInterval(() => {
+    //console.log("I'm awake, I'm awake");
+    //chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {});
+
+}, 29_000)

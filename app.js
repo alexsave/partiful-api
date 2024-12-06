@@ -11,17 +11,18 @@ const {generalApi, summary} = require('./general');
 const { parse } = require('path');
 
 const { initializeServer, sendCommand } = require('./utils/webutils')
-const {exec} = require('child_process');
+const {exec, spawn} = require('child_process');
 
 const client = new OpenAI();
+const CDP = require('chrome-remote-interface');
 
 // WebSocket server variables
 
 // Similar to Android context? Will store things like verification codes and such
 const context = {};
 
-const DEFAULT_HOME = "chrome://newtab"
-const BROWSER = "Google Chrome"
+const DEFAULT_HOME = "chrome://newtab";
+const BROWSER = "Google Chrome";
 
 // hmm so there's almost another level to this, where we should open chrome directly to a page if it's not open already
 // but i'll get to that later. for now we just open chrome to idk google.com
@@ -29,23 +30,79 @@ const BROWSER = "Google Chrome"
 /*
 start chrome with --remote-debugging-port=<someport>
 before an event where you want to ensure the servce worker is up (in my case it was sending a websocket event to the chrome extension)
-import CDP from "chrome-remote-interface" const cdpOpts = { port: , host: "0.0.0.0" } const scopeUrl="chrome-extension://pifdfbadejagoljdhnlmldpcnlfankli/" // replace with your own extension id which can be seen in the extension tab const client = await CDP(cdpOpts) await client.send("ServiceWorker.enable") await client.send("ServiceWorker.startWorker", { scopeURL })
 */
 // check if chrome is open, if not open it to some home page
-const command = `pgrep -x "${BROWSER}" > /dev/null || open -a "${BROWSER}" ${DEFAULT_HOME}`
-// Execute the command
+//const command = `pgrep -x "${BROWSER}" > /dev/null || open -n -a "${BROWSER}" ${DEFAULT_HOME} --args --remote-debugging-port=43`
+// ok this arg is way easier than my other attempt
+const command = `/Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --remote-debugging-port=9222 --load-extension="./chrome_ext"`;
+// ok maybe i need a bash
+//const command = `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`;
+const args = ['--remote-debugging-port=43'];
+// because we need to relaunch, we should probably close all other chrome tabs
+
+//exec(command, (error, stdout, stderr) => {
+//const chromeProcess = spawn(command, args, { detached: true, /*stdio: 'ignore'*/ });
+
+//chromeProcess.unref(); // Detach the process
+
 // Don't worry about async, there's no way this takes longer to run compared to typing in a prompt + hitting enter
+console.log('executing command');
+// this never really ends, so chrome never closes
 exec(command, (error, stdout, stderr) => {
+
+    console.log('callback called');
     if (error) {
-        //console.error(`Error: ${error.message}`);
+        console.error(`Error: ${error.message}`);
         return;
     }
     if (stderr) {
-        //console.error(`Stderr: ${stderr}`);
+        console.error(`Stderr: ${stderr}`);
         return;
     }
-    //console.log(`Stdout: ${stdout}`);
+    console.log(`Stdout: ${stdout}`);
 });
+
+const cdpOpts = { port: 9222, host: "0.0.0.0" }
+const scopeUrl = "chrome-extension://jopnjjlijghkbopccilgaglodjaiohlm/"; // replace with your own extension id which can be seen in the extension tab 
+setTimeout(_ => {
+    (async () => {
+        console.log('connecting to chrome');
+        const debugClient = await CDP(cdpOpts);
+        console.log('client connected');
+        //const { Runtime, Page } = debugClient;
+        // Enable Runtime to execute script
+        //await Runtime.enable();
+        //console.log('runtime enabled');
+        //const checkExtensionsScript = `
+            //new Promise((resolve) => {
+                //chrome.management.getAll((extensions) => {
+                    //resolve(extensions.map(ext => ext.id));
+                //});
+            ////});
+        //`;
+        //const extensionsResponse = await Runtime.evaluate({
+            //expression: checkExtensionsScript,
+            //awaitPromise: true,
+        //});
+
+        //const installedExtensions = extensionsResponse.result.value;
+        //console.log('Installed Extensions:', installedExtensions);
+        //exit(-1);
+
+
+        // if this works we should probably only call this right before a command
+        // it does work
+        setInterval(async _ => {
+            console.log('waking up worker')
+            await debugClient.send("ServiceWorker.enable")
+            await debugClient.send("ServiceWorker.startWorker", { scopeURL: scopeUrl })
+
+        }, 29000 )
+
+    })()
+}, 5000);
+// Execute the command
+//});
 
 
 initializeServer();
@@ -213,7 +270,7 @@ const processCommand = async input => {
     const message = completion.choices[0]?.message;
     console.log(message.parsed)
     if (message?.parsed) {
-        const {type} = message.parsed;
+        const { type } = message.parsed;
         if (type === 'googlesearch') {
             // TODO implement new action in the ext
         } else if (type === 'urlload') {
@@ -222,7 +279,7 @@ const processCommand = async input => {
             loadInitialPage(url);
         }
     }
-    
+
     /*
 
     if (message?.parsed) {
@@ -279,7 +336,7 @@ const loadInitialPage = async url => {
 
     // Step 14 get response back
 
-    if (true){
+    if (true) {
         // Step 15a: you're done
         const message = completion.choices[0]?.message;
         console.log(JSON.stringify(message));
@@ -293,7 +350,7 @@ const loadInitialPage = async url => {
 
 
 
-   // await sendCommand({ type: 'get-summary' })
+    // await sendCommand({ type: 'get-summary' })
     exit(-1);
 
 }

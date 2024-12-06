@@ -132,6 +132,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         const { type } = request;
         console.log('received message from background: ' + JSON.stringify(request))
 
+        // Step 9 get DOM
         if (actions[type]) {
             let result;
             try {
