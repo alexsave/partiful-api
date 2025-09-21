@@ -21,127 +21,163 @@ const serverUrl = 'ws://localhost:3001';
 
 let sessionTab = null;
 
-function connectWebSocket() {
-    // Create a WebSocket connection to the server
-    socket = new WebSocket('ws://localhost:3001');
-
-    // Open WebSocket connection
-    socket.addEventListener('open', (event) => {
-        console.log('WebSocket connection opened:', event);
-        socket.send(JSON.stringify({ type: 'greeting', message: 'Hello from background script!' }));
-    });
-
-    // Handle incoming messages from the WebSocket server
-    socket.addEventListener('message', ({ data }) => {
-        console.log('Received message from server:', data);
-        let parsedData;
-        try {
-            parsedData = JSON.parse(data);
-        } catch (e) {
-            console.log('Error parsing incoming data:', e);
-            return;
+function sendToServer(obj) {
+    try {
+        const data = typeof obj === 'string' ? obj : JSON.stringify(obj);
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.send(data);
+        } else {
+            console.log('WS not open; dropping message:', data);
         }
+    } catch (e) {
+        console.log('sendToServer error:', e);
+    }
+}
 
-        const { type } = parsedData;
-        console.log(type);
-
-        let result;
-        try {
-            if (['load'].includes(type)) {
-                // This needs to be done here, not in content scripts
-                /*chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-                    chrome.tabs.update(tabs[0].id, { url: parsedData.url }, (tab) => {
-                        socket.send(JSON.stringify({type: type, 'result': `Tab ${tab.id} navigating to ${tab.pendingUrl}.`}))
-                    })
-                });*/
-
-                // Step 6 open new tab
-                chrome.tabs.create({ url: parsedData.url }, (tab) => {
-                    // Log message that we're opening the tab
-                    //socket.send(JSON.stringify({ type: type, result: `New tab ${tab.id} opened and navigating to ${tab.pendingUrl || tab.url}.` }));
-
-                    // Step 7 wait for load
-                    // todo extract this to helper
-                    const tabSend = () => {
-                        // Step 8 requrest DOM
-                        chrome.tabs.sendMessage(tab.id, {type: 'get-summary'}, (results) => {
-                            console.log(results);
-                            //result = results.result;
-                            // forward it back to the server
-                            // Step 10 send dom back to server
-                            socket.send(JSON.stringify(results));
-                        });
-                    }
-                    if (tab.status === 'complete') {
-                        sessionTab = tab;
+const sendWithRetry = (tabId, params) => {
+    const tabSend = () => {
+        chrome.tabs.sendMessage(tabId, params, (results) => {
+            console.log(results);
+            sendToServer(results);
+        });
+    }
+    chrome.tabs.get(tabId, (tab) => {
+        if (tab && tab.status === 'complete') {
+            tabSend();
+        } else {
+            const interval = setInterval(() => {
+                console.log('was busy, trying again')
+                chrome.tabs.get(tabId, updatedTab => {
+                    if (updatedTab && updatedTab.status === 'complete') {
+                        clearInterval(interval);
                         tabSend();
-                    } else {
-                        const interval = setInterval(() => {
-                            console.log('was busy, trying again')
-                            chrome.tabs.get(tab.id, updatedTab => {
-                                if (updatedTab.status === 'complete') {
-                                    clearInterval(interval);
-                                    tabSend();
-                                }
-                            });
-                        }, 1000);
                     }
                 });
-            } else {
-
-
-                //if (actions[action]) {
-                // For actions that require DOM manipulation, execute code in the content script
-                //if (['get-dom', 'click', 'type', 'upload'].includes(action)) {
-                //chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-                    // Annoying but we do need to wait for the next page to load when we navigate
-                    const tabSend = () => {
-                        chrome.tabs.sendMessage(sessionTab.id, parsedData, (results) => {
-                            console.log(results);
-                            //result = results.result;
-                            // forward it back to the server
-                            socket.send(JSON.stringify(results));
-                        });
-                    }
-                    if (sessionTab.status === 'complete') {
-                        tabSend();
-                    } else {
-                        const interval = setInterval(() => {
-                            console.log('was busy, trying again')
-                            chrome.tabs.get(sessionTab.id, updatedTab => {
-                                if (updatedTab.status === 'complete') {
-                                    clearInterval(interval);
-                                    tabSend();
-                                }
-                            });
-                        }, 1000);
-                    }
-                //});
-            }
-
-            //} else {
-            //result = actions[action](params);
-            //socket.send(JSON.stringify({ type: 'result', result }));
-            //}
-        } catch (e) {
-            result = `Error executing action: ${e.message}`;
-            socket.send(JSON.stringify({ type: 'result', result }));
+            }, 1000);
         }
-        //} else {
-        //console.log(`Unknown action requested: ${action}`);
-        //}
-    });
-
-    // WebSocket error handling
-    socket.addEventListener('error', (event) => {
-        console.log('WebSocket error:', event);
-    });
-
-    // WebSocket connection closed event
-    socket.addEventListener('close', (event) => {
-        console.log('WebSocket connection closed:', event);
     });
 }
+
+function connectWebSocket() {
+    try {
+        if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return;
+        socket = new WebSocket(serverUrl);
+        socket.addEventListener('open', () => {
+            console.log('WebSocket connection opened');
+            try { socket.send(JSON.stringify({ type: 'greeting', message: 'Hello from background!' })); } catch (_) {}
+        });
+        socket.addEventListener('message', async ({ data }) => {
+            try { await handleServerMessage(data); } catch (e) { console.log('Error handling WS message:', e); }
+        });
+        socket.addEventListener('error', (event) => {
+            console.log('WebSocket error:', event);
+        });
+        socket.addEventListener('close', () => {
+            console.log('WebSocket closed, retrying in 3s');
+            setTimeout(connectWebSocket, 3000);
+        });
+    } catch (e) {
+        console.log('connectWebSocket error:', e);
+    }
+}
+
+async function handleServerMessage(raw) {
+    console.log('Received message from server:', raw);
+    let parsedData;
+    try {
+        parsedData = JSON.parse(raw);
+    } catch (e) {
+        console.log('Error parsing incoming data:', e);
+        return;
+    }
+
+    const { type } = parsedData;
+    console.log(type);
+
+    let result;
+    try {
+        if (type === 'alaska_load') {
+            // Unique path 
+            const { departure, arrival, date } = parsedData;
+            const ALASKA_URL = `https://www.alaskaair.com/search/results?O=${departure}&D=${arrival}&OD=${date}&A=1&RT=false&ShoppingMethod=onlineaward&locale=en-us`
+
+            chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+                if (!tabs || tabs.length === 0) {
+                    chrome.tabs.create({ url: ALASKA_URL }, (tab) => {
+                        sessionTab = tab;
+                        sendWithRetry(tab.id, { ...parsedData, type: 'alaska_load' });
+                    });
+                } else {
+                    chrome.tabs.update(tabs[0].id, { url: ALASKA_URL }, (tab) => {
+                        sessionTab = tab;
+                        sendWithRetry(tab.id, { ...parsedData, type: 'alaska_load' });
+                    });
+                }
+            });
+
+        } else if (['load'].includes(type)) {
+            chrome.tabs.create({ url: parsedData.url }, (tab) => {
+                const tabSend = () => {
+                    chrome.tabs.sendMessage(tab.id, { type: 'get-summary' }, (results) => {
+                        sendToServer(results);
+                    });
+                }
+                if (tab.status === 'complete') {
+                    sessionTab = tab;
+                    tabSend();
+                } else {
+                    const interval = setInterval(() => {
+                        console.log('was busy, trying again')
+                        chrome.tabs.get(tab.id, updatedTab => {
+                            if (updatedTab.status === 'complete') {
+                                clearInterval(interval);
+                                tabSend();
+                            }
+                        });
+                    }, 1000);
+                }
+            });
+        } else {
+            const tabSend = () => {
+                chrome.tabs.sendMessage(sessionTab.id, parsedData, (results) => {
+                    sendToServer(results);
+                });
+            }
+            if (sessionTab.status === 'complete') {
+                tabSend();
+            } else {
+                const interval = setInterval(() => {
+                    console.log('was busy, trying again')
+                    chrome.tabs.get(sessionTab.id, updatedTab => {
+                        if (updatedTab.status === 'complete') {
+                            clearInterval(interval);
+                            tabSend();
+                        }
+                    });
+                }, 1000);
+            }
+        }
+    } catch (e) {
+        result = `Error executing action: ${e.message}`;
+        sendToServer({ type: 'result', result });
+    }
+
+}
+
+// Attempt to connect immediately when the service worker starts
+try {
+    connectWebSocket();
+} catch (e) {
+    // ignore
+}
+
+// Also try on install/startup events
+chrome.runtime.onInstalled.addListener(() => {
+    try { connectWebSocket(); } catch (e) {}
+});
+chrome.runtime.onStartup.addListener(() => {
+    try { connectWebSocket(); } catch (e) {}
+});
 
 // Function to run DOM manipulation actions (content script)
 function runDomAction(action, params) {

@@ -1,3 +1,5 @@
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 const waitForNetworkIdle = (timeout = 1000, checkInterval=1000) => {
     return new Promise(resolve => {
         let lastActiveTimestamp = Date.now();
@@ -83,6 +85,36 @@ const simpleDom = async () => {
     return simplifiedDom;
 }
 
+// Execute a function in the page context (not the content script isolated world)
+// and return a structured-cloneable result via a CustomEvent bridge.
+const ensureBridgeLoaded = async () => {
+    if (window.__EXT_BRIDGE_LOADED__) return;
+    await new Promise((resolve) => {
+        const script = document.createElement('script');
+        script.src = chrome.runtime.getURL('page_bridge.js');
+        script.onload = () => {
+            window.__EXT_BRIDGE_LOADED__ = true;
+            resolve();
+        };
+        (document.head || document.documentElement).appendChild(script);
+    });
+};
+
+const callPageBridge = async (name, args) => {
+    await ensureBridgeLoaded();
+    return new Promise((resolve) => {
+        const callId = Math.random().toString(36).slice(2);
+        const handler = (evt) => {
+            const { callId: retId, payload } = evt.detail || {};
+            if (retId !== callId) return;
+            document.removeEventListener('EXT_BRIDGE_RETURN', handler);
+            resolve(payload);
+        };
+        document.addEventListener('EXT_BRIDGE_RETURN', handler);
+        document.dispatchEvent(new CustomEvent('EXT_BRIDGE_CALL', { detail: { callId, name, args } }));
+    });
+};
+
 // Define the available DOM actions in content.js
 const actions = {
     'get-summary': async () => {
@@ -120,6 +152,26 @@ const actions = {
 
     'load': async ({ url }) => {
         return `Error: Can't load from here`;
+    },
+
+    // More specific, but reusing existing chrome extension architeture
+    'alaska_load': async () => {
+        // Assuming we've already loaded the right page.
+        // Step 1: load all the flights
+        const moreButton = document.querySelector('[title="Show More Results"]')
+        if (moreButton) {
+            moreButton.click();
+            await sleep(150);
+        }
+
+        // Give the page a brief moment to populate shadow DOM content
+        await sleep(300);
+
+        // Collect in page context to access custom element internals reliably
+        const pageData = await callPageBridge('collectAlaska');
+        
+
+        return pageData
     }
 };
 

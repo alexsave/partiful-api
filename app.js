@@ -34,10 +34,10 @@ before an event where you want to ensure the servce worker is up (in my case it 
 // check if chrome is open, if not open it to some home page
 //const command = `pgrep -x "${BROWSER}" > /dev/null || open -n -a "${BROWSER}" ${DEFAULT_HOME} --args --remote-debugging-port=43`
 // ok this arg is way easier than my other attempt
-const command = `/Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --remote-debugging-port=9222 --load-extension="./chrome_ext"`;
+//const command = `/Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --remote-debugging-port=9222 --load-extension="./chrome_ext"`;
 // ok maybe i need a bash
 //const command = `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`;
-const args = ['--remote-debugging-port=43'];
+//const args = ['--remote-debugging-port=43'];
 // because we need to relaunch, we should probably close all other chrome tabs
 
 //exec(command, (error, stdout, stderr) => {
@@ -48,27 +48,56 @@ const args = ['--remote-debugging-port=43'];
 // Don't worry about async, there's no way this takes longer to run compared to typing in a prompt + hitting enter
 console.log('executing command');
 // this never really ends, so chrome never closes
-exec(command, (error, stdout, stderr) => {
+//exec(command, (error, stdout, stderr) => {
+//
+    //console.log('callback called');
+    //if (error) {
+        //console.error(`Error: ${error.message}`);
+        //return;
+    //}
+    //if (stderr) {
+        //console.error(`Stderr: ${stderr}`);
+        //return;
+    //}
+    //console.log(`Stdout: ${stdout}`);
+//});
 
-    console.log('callback called');
-    if (error) {
-        console.error(`Error: ${error.message}`);
-        return;
-    }
-    if (stderr) {
-        console.error(`Stderr: ${stderr}`);
-        return;
-    }
-    console.log(`Stdout: ${stdout}`);
+const http = require('http');
+const path = require('path');
+
+const CHROME_PATH = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const EXT_PATH = path.resolve(__dirname, './chrome_ext'); // make sure this exists
+const PORT = 9222;
+const HOST = '127.0.0.1';
+
+// (Optional) kill any existing Chrome so our flags take effect
+// spawn('pkill', ['-f', 'Google Chrome'], { stdio: 'ignore' });
+
+const chromeArgs = [
+  `--remote-debugging-port=${PORT}`,
+  `--user-data-dir=/tmp/chrome-cdp-${PORT}`,
+  `--disable-extensions-except=${EXT_PATH}`,
+  `--load-extension=${EXT_PATH}`,
+  '--no-first-run',
+  '--no-default-browser-check',
+  // '--new-window', // optional
+];
+
+const chrome = spawn(CHROME_PATH, chromeArgs, {
+  detached: true,
+  stdio: 'ignore',
 });
 
-const cdpOpts = { port: 9222, host: "0.0.0.0" }
+// detach so our Node process can continue
+chrome.unref();
+
+const cdpOpts = { port: 9222, host: "127.0.0.1" }
 const scopeUrl = "chrome-extension://jopnjjlijghkbopccilgaglodjaiohlm/"; // replace with your own extension id which can be seen in the extension tab 
 setTimeout(_ => {
     (async () => {
         //console.log('connecting to chrome');
-        const debugClient = await CDP(cdpOpts);
-        //console.log('client connected');
+        const debugClient = await CDP();//cdpOpts);
+        console.log('client connected');
         //const { Runtime, Page } = debugClient;
         // Enable Runtime to execute script
         //await Runtime.enable();
@@ -93,16 +122,15 @@ setTimeout(_ => {
         // if this works we should probably only call this right before a command
         // it does work
         setInterval(async _ => {
-            //console.log('waking up worker')
+            console.log('waking up worker')
             await debugClient.send("ServiceWorker.enable")
             await debugClient.send("ServiceWorker.startWorker", { scopeURL: scopeUrl })
 
         }, 2000 )
 
     })()
-}, 5000);
+}, 10000);
 // Execute the command
-//});
 
 
 initializeServer();
