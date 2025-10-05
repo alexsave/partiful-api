@@ -115,6 +115,39 @@ async function handleServerMessage(raw) {
                 }
             });
 
+        } else if (type === 'youtube-transcript') {
+            const { videoId } = parsedData;
+            const YT_URL = `https://www.youtube.com/watch?v=${videoId}`;
+            chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+                if (!tabs || tabs.length === 0) {
+                    chrome.tabs.create({ url: YT_URL }, (tab) => {
+                        sessionTab = tab;
+                        sendWithRetry(tab.id, { ...parsedData, type: 'youtube-transcript' });
+                    });
+                } else {
+                    chrome.tabs.update(tabs[0].id, { url: YT_URL }, (tab) => {
+                        sessionTab = tab;
+                        sendWithRetry(tab.id, { ...parsedData, type: 'youtube-transcript' });
+                    });
+                }
+            });
+        } else if (type === 'youtuber-vids') {
+            const { username } = parsedData;
+            const handle = String(username || '').startsWith('@') ? username : `@${username}`;
+            const YT_URL = `https://www.youtube.com/${handle}/videos`;
+
+            const tabSendRetry = tab => {
+                sessionTab = tab;
+                sendWithRetry(tab.id, { ...parsedData, type: 'youtuber-vids' });
+            }
+
+            chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+                if (!tabs || tabs.length === 0) {
+                    chrome.tabs.create({ url: YT_URL }, tabSendRetry);
+                } else {
+                    chrome.tabs.update(tabs[0].id, { url: YT_URL }, tabSendRetry);
+                }
+            });
         } else if (['load'].includes(type)) {
             chrome.tabs.create({ url: parsedData.url }, (tab) => {
                 const tabSend = () => {

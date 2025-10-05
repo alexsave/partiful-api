@@ -154,6 +154,72 @@ const actions = {
         return `Error: Can't load from here`;
     },
 
+    'youtuber-vids': async ({ username }) => {
+        // Assumes we're already on https://www.youtube.com/@<handle>/videos
+        const collected = new Set();
+        let lastCount = -1;
+        let stagnantRounds = 0;
+        for (let i = 0; i < 600; i++) {
+            try {
+                window.scrollTo(0, document.documentElement.scrollHeight || document.body.scrollHeight);
+            } catch (_) {}
+            await sleep(5000 + Math.floor(Math.random() * 2000));
+            try {
+                const ids = Array.from(document.querySelectorAll('#video-title-link')).map(x => {
+                    const href = x && x.href ? x.href : '';
+                    const a = href.split('watch?v=')[1];
+                    if (!a) return null;
+                    return a.split('&')[0];
+                }).filter(Boolean);
+                ids.forEach(id => collected.add(id));
+            } catch (_) {}
+
+            if (collected.size === lastCount) {
+                stagnantRounds++;
+            } else {
+                stagnantRounds = 0;
+                lastCount = collected.size;
+            }
+            if (stagnantRounds >= 2) break;
+        }
+        return Array.from(collected);
+    },
+
+    'youtube-transcript': async ({ videoId }) => {
+        try {
+            // Mute if currently unmuted (tooltip shows "Mute (m)")
+            try {
+                const muteTooltip = document.querySelector('[data-tooltip-title="Mute (m)"]');
+                if (muteTooltip) {
+                    const body = document.querySelector('body');
+                    if (body) {
+                        const down = new KeyboardEvent('keydown', { key: 'm', code: 'KeyM', keyCode: 77, which: 77, bubbles: true });
+                        const up = new KeyboardEvent('keyup', { key: 'm', code: 'KeyM', keyCode: 77, which: 77, bubbles: true });
+                        body.dispatchEvent(down);
+                        await sleep(100);
+                        body.dispatchEvent(up);
+                    }
+                }
+            } catch (_) {}
+
+            await sleep(1000);
+            const descs = document.querySelectorAll('#description');
+            if (descs && descs[1]) {
+                try { descs[1].click(); } catch (_) {}
+                await sleep(600);
+                const showBtns = descs[1].querySelectorAll('[aria-label="Show transcript"]');
+                if (showBtns && showBtns[0]) {
+                    try { showBtns[0].click(); } catch (_) {}
+                }
+            }
+            await sleep(4000);
+            const transcript = Array.from(document.querySelectorAll('.segment-text')).map(x => x.innerText.replaceAll(' __ ',' *** ')).join(' ');
+            return transcript;
+        } catch (e) {
+            return `Error: ${e.message}`;
+        }
+    },
+
     // More specific, but reusing existing chrome extension architeture
     'alaska_load': async () => {
         // Assuming we've already loaded the right page.

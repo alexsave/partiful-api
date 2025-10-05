@@ -2,6 +2,8 @@ const http = require('http');
 const crypto = require('crypto');
 
 const sockets = [];
+let httpServer = null;
+const socketStates = new WeakMap(); // socket -> { buffer: Buffer, assembling: string }
 
 // Function to create a WebSocket frame for sending messages
 function createWebSocketFrame(data) {
@@ -36,40 +38,50 @@ function createWebSocketFrame(data) {
     return frame;
 }
 
-// Function to parse WebSocket frames
-function parseWebSocketFrame(buffer) {
-    const firstByte = buffer[0];
-    const opCode = firstByte & 0xf;
+// Parse as many complete frames as possible from a buffer. Returns
+// { frames: string[], remaining: Buffer }
+function readFrame(buffer, startOffset) {
+    if (buffer.length - startOffset < 2) return null;
+    const firstByte = buffer[startOffset];
+    const fin = (firstByte & 0x80) !== 0;
+    const opcode = firstByte & 0x0f;
+    const secondByte = buffer[startOffset + 1];
+    const isMasked = (secondByte & 0x80) !== 0;
+    let length = secondByte & 0x7f;
+    let headerLen = 2;
 
-    // Only handle text frames (opcode 1)
-    if (opCode === 0x1) {
-        const secondByte = buffer[1];
-        let length = secondByte & 0x7f;
-        let offset = 2;
-
-        if (length === 126) {
-            length = buffer.readUInt16BE(2);
-            offset += 2;
-        } else if (length === 127) {
-            // Very large lengths, not likely needed in this example
-            length = buffer.readBigUInt64BE(2);
-            offset += 8;
+    if (length === 126) {
+        if (buffer.length - startOffset < 4) return null;
+        length = buffer.readUInt16BE(startOffset + 2);
+        headerLen = 4;
+    } else if (length === 127) {
+        if (buffer.length - startOffset < 10) return null;
+        const bigLen = buffer.readBigUInt64BE(startOffset + 2);
+        if (bigLen > BigInt(Number.MAX_SAFE_INTEGER)) {
+            throw new Error('Frame too large to handle');
         }
-
-        const masks = buffer.slice(offset, offset + 4);
-        offset += 4;
-
-        const messageBuffer = buffer.slice(offset, offset + length);
-        let decoded = '';
-
-        for (let i = 0; i < messageBuffer.length; i++) {
-            decoded += String.fromCharCode(messageBuffer[i] ^ masks[i % 4]);
-        }
-
-        return decoded;
+        length = Number(bigLen);
+        headerLen = 10;
     }
 
-    return null;
+    const maskLen = isMasked ? 4 : 0;
+    const totalHeader = headerLen + maskLen;
+    if (buffer.length - startOffset < totalHeader + length) return null;
+
+    const maskStart = startOffset + headerLen;
+    const payloadStart = startOffset + totalHeader;
+    const payloadEnd = payloadStart + length;
+    let payload = buffer.slice(payloadStart, payloadEnd);
+    if (isMasked) {
+        const masks = buffer.slice(maskStart, maskStart + 4);
+        const unmasked = Buffer.allocUnsafe(payload.length);
+        for (let i = 0; i < payload.length; i++) {
+            unmasked[i] = payload[i] ^ masks[i % 4];
+        }
+        payload = unmasked;
+    }
+
+    return { fin, opcode, payload, nextOffset: payloadEnd };
 }
 
 // Function to generate the Sec-WebSocket-Accept value
@@ -91,6 +103,7 @@ const initializeServer = () => {
     server.listen(3001, () => {
         console.log('Server is listening on ws://localhost:3001');
     });
+    httpServer = server;
 
     // Handle WebSocket upgrade requests
     server.on('upgrade', (req, socket, head) => {
@@ -122,11 +135,11 @@ const initializeServer = () => {
                 // It doesn't like it when both are listening
                 //const message = parseWebSocketFrame(buffer);
                 //if (message) {
-                    //console.log('Global received:', message);
+                //console.log('Global received:', message);
 
-                    // Respond to the client
-                    //const reply = createWebSocketFrame(JSON.stringify({action: 'get-actions'}));
-                    //socket.write(reply);
+                // Respond to the client
+                //const reply = createWebSocketFrame(JSON.stringify({action: 'get-actions'}));
+                //socket.write(reply);
                 //}
             } catch (err) {
                 console.error('Error processing message:', err);
@@ -145,6 +158,19 @@ const initializeServer = () => {
     });
 }
 
+const shutdownServer = () => {
+    try {
+        sockets.forEach((socket) => {
+            try { socket.destroy(); } catch (_) {}
+        });
+        sockets.length = 0;
+        if (httpServer) {
+            try { httpServer.close(); } catch (_) {}
+            httpServer = null;
+        }
+    } catch (_) {}
+};
+
 const sendCommand = (command) => {
     return new Promise((resolve, reject) => {
         const message = createWebSocketFrame(JSON.stringify(command));
@@ -152,21 +178,44 @@ const sendCommand = (command) => {
         sockets.forEach((socket) => {
             const onMessage = buffer => {
                 try {
-                    const response = parseWebSocketFrame(buffer);
-                    if (response) {
-                        const parsedResponse = JSON.parse(response); 
-                        if (parsedResponse.type === command.type) {
-                            console.log(`Received response for action on: ${JSON.stringify(parsedResponse)}`);
-                            // Clean up the event listener
-                            socket.removeListener('data', onMessage);
-                            resolve(parsedResponse);
-                        } else {
-                            //console.log(`Received response for action on: ${JSON.stringify(parsedResponse)}`);
-                            // Clean up the event listener
-                            socket.removeListener('data', onMessage);
-                            resolve(parsedResponse);
+                    const state = socketStates.get(socket) || { buffer: Buffer.alloc(0), assembling: '' };
+                    let combined = Buffer.concat([state.buffer, buffer]);
+                    let offset = 0;
+                    while (true) {
+                        const frame = readFrame(combined, offset);
+                        if (!frame) break; // need more data
+                        offset = frame.nextOffset;
+
+                        if (frame.opcode === 0x1 || frame.opcode === 0x0) { // text or continuation
+                            // Append UTF-8 chunk to assembling string
+                            state.assembling += frame.payload.toString('utf8');
+                            if (frame.fin) {
+                                const response = state.assembling;
+                                state.assembling = '';
+                                try {
+                                    const parsedResponse = JSON.parse(response);
+                                    if (parsedResponse.type === command.type) {
+                                        console.log(`Received response for action on: ${JSON.stringify(parsedResponse)}`);
+                                        socket.removeListener('data', onMessage);
+                                        socketStates.set(socket, { buffer: combined.slice(offset), assembling: '' });
+                                        return resolve(parsedResponse);
+                                    } else {
+                                        socket.removeListener('data', onMessage);
+                                        socketStates.set(socket, { buffer: combined.slice(offset), assembling: '' });
+                                        return resolve(parsedResponse);
+                                    }
+                                } catch (e) {
+                                    // ignore invalid JSON, continue accumulating
+                                }
+                            }
+                        } else if (frame.opcode === 0x8) {
+                            // close frame
+                            socket.end();
+                            break;
                         }
                     }
+                    // Save remaining bytes
+                    socketStates.set(socket, { buffer: combined.slice(offset), assembling: state.assembling });
                 } catch (error) {
                     console.error('Error processing WebSocket response:', error);
                     reject(error);
@@ -186,5 +235,5 @@ const sendCommand = (command) => {
 // But for now we have "APIs" that bundle a bunch of commands
 
 module.exports = {
-    initializeServer, sendCommand
+    initializeServer, sendCommand, shutdownServer
 }
