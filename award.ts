@@ -5,52 +5,6 @@ const {exec, spawn} = require('child_process');
 
 const CDP = require('chrome-remote-interface');
 
-// WebSocket server variables
-
-// Similar to Android context? Will store things like verification codes and such
-const context = {};
-
-const DEFAULT_HOME = "chrome://newtab";
-const BROWSER = "Google Chrome";
-
-// hmm so there's almost another level to this, where we should open chrome directly to a page if it's not open already
-// but i'll get to that later. for now we just open chrome to idk google.com
-
-/*
-start chrome with --remote-debugging-port=<someport>
-before an event where you want to ensure the servce worker is up (in my case it was sending a websocket event to the chrome extension)
-*/
-// check if chrome is open, if not open it to some home page
-//const command = `pgrep -x "${BROWSER}" > /dev/null || open -n -a "${BROWSER}" ${DEFAULT_HOME} --args --remote-debugging-port=43`
-// ok this arg is way easier than my other attempt
-//const command = `/Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --remote-debugging-port=9222 --load-extension="./chrome_ext"`;
-// ok maybe i need a bash
-//const command = `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`;
-//const args = ['--remote-debugging-port=43'];
-// because we need to relaunch, we should probably close all other chrome tabs
-
-//exec(command, (error, stdout, stderr) => {
-//const chromeProcess = spawn(command, args, { detached: true, /*stdio: 'ignore'*/ });
-
-//chromeProcess.unref(); // Detach the process
-
-// Don't worry about async, there's no way this takes longer to run compared to typing in a prompt + hitting enter
-console.log('executing command');
-// this never really ends, so chrome never closes
-//exec(command, (error, stdout, stderr) => {
-//
-    //console.log('callback called');
-    //if (error) {
-        //console.error(`Error: ${error.message}`);
-        //return;
-    //}
-    //if (stderr) {
-        //console.error(`Stderr: ${stderr}`);
-        //return;
-    //}
-    //console.log(`Stdout: ${stdout}`);
-//});
-
 const http = require('http');
 const path = require('path');
 const fs = require('fs');
@@ -60,19 +14,44 @@ const EXT_PATH = path.resolve(__dirname, './chrome_ext'); // make sure this exis
 const PORT = 9222;
 const HOST = '127.0.0.1';
 
+const SAVE_FILE = path.resolve(__dirname, './data.json');
+
+// Keyed datastore: "DEP|ARR|YYYY-MM-DD" -> { lastChecked: ISO, data }
+let dataStore = {};
+try {
+    if (fs.existsSync(SAVE_FILE)) {
+        const raw = fs.readFileSync(SAVE_FILE, 'utf8').trim();
+        if (raw) {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+                console.log('[data] Found legacy array data; initializing new keyed store');
+                dataStore = {};
+            } else if (parsed && typeof parsed === 'object') {
+                dataStore = parsed;
+            }
+        }
+    }
+} catch (e) {
+    console.log('[data] Failed to load existing data store:', e.message);
+    dataStore = {};
+}
+
 // Helpers
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const HOUR_MS = 60 * 60 * 1000;
+const randomInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+const randomSleep = (minMs, maxMs) => sleep(randomInt(minMs, maxMs));
 
 const killExistingChrome = () => new Promise((resolve) => {
     console.log(`[launcher] Ensuring no existing Chrome is running...`);
     const killer = spawn('pkill', ['-f', 'Google Chrome']);
     killer.on('error', (err) => {
         console.log(`[launcher] pkill error: ${err.message}`);
-        resolve();
+        resolve(undefined);
     });
     killer.on('close', (code) => {
         console.log(`[launcher] pkill finished with code: ${code}`);
-        resolve();
+        resolve(undefined);
     });
 });
 
@@ -85,7 +64,7 @@ const waitForDevTools = async (host, port, timeoutMs = 30000) => {
             await new Promise((resolve, reject) => {
                 const req = http.get(url, (res) => {
                     const ok = res.statusCode && res.statusCode >= 200 && res.statusCode < 300;
-                    ok ? resolve() : reject(new Error(`HTTP ${res.statusCode}`));
+                    ok ? resolve(undefined) : reject(new Error(`HTTP ${res.statusCode}`));
                 });
                 req.on('error', reject);
                 req.setTimeout(2000, () => {
@@ -213,9 +192,49 @@ chrome.unref();
 initializeServer();
 
 setTimeout(async () => {
-    const departure = 'LAX';
-    const arrival = 'SFO';
+    const departure = 'SEA';
+    const arrival = 'ICN';
     const date = '2025-09-21';
-    await sendCommand({ type: 'alaska_load', departure, arrival, date });
+    const data = await sendCommand({ type: 'alaska_load', departure, arrival, date });
+    console.log('data', data);
+
+    const today = new Date();
+    // Build 0..364 day offsets and shuffle
+    const offsets = Array.from({ length: 365 }, (_, i) => i);
+    for (let i = offsets.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [offsets[i], offsets[j]] = [offsets[j], offsets[i]];
+    }
+
+    for (const offset of offsets) {
+        const d = new Date(today);
+        d.setDate(d.getDate() + offset);
+        const dateStr = d.toISOString().split('T')[0];
+        const key = `${departure}|${arrival}|${dateStr}`;
+
+        // Skip if checked within the last hour
+        const now = Date.now();
+        const last = dataStore[key]?.lastChecked ? Date.parse(dataStore[key].lastChecked) : 0;
+        if (last && now - last < HOUR_MS) {
+            console.log(`[skip] Recently checked ${key}; skipping`);
+            await randomSleep(250, 1250);
+            continue;
+        }
+
+        const data = await sendCommand({ type: 'alaska_load', departure, arrival, date: dateStr });
+        console.log('data', { key, summary: { flights: Array.isArray(data?.result?.flights) ? data.result.flights.length : undefined } });
+
+        dataStore[key] = {
+            lastChecked: new Date().toISOString(),
+            data,
+        };
+
+        // Persist full keyed store
+        fs.writeFileSync(SAVE_FILE, JSON.stringify(dataStore) + '\n');
+
+        // Randomized gentle delay between calls
+        await randomSleep(2000, 3000);
+    }
+
 
 }, 15000);

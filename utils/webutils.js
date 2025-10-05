@@ -161,7 +161,7 @@ const sendCommand = (command) => {
                             socket.removeListener('data', onMessage);
                             resolve(parsedResponse);
                         } else {
-                            console.log(`Received response for action on: ${JSON.stringify(parsedResponse)}`);
+                            //console.log(`Received response for action on: ${JSON.stringify(parsedResponse)}`);
                             // Clean up the event listener
                             socket.removeListener('data', onMessage);
                             resolve(parsedResponse);
