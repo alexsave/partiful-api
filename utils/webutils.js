@@ -195,7 +195,7 @@ const sendCommand = (command) => {
                                 try {
                                     const parsedResponse = JSON.parse(response);
                                     if (parsedResponse.type === command.type) {
-                                        console.log(`Received response for action on: ${JSON.stringify(parsedResponse)}`);
+                                        //console.log(`Received response for action on: ${JSON.stringify(parsedResponse)}`);
                                         socket.removeListener('data', onMessage);
                                         socketStates.set(socket, { buffer: combined.slice(offset), assembling: '' });
                                         return resolve(parsedResponse);

@@ -251,7 +251,6 @@ const actions = {
         }, 2000);
 
         const response = await interceptPromise;
-        console.log('[pool_load] Got response:', response?.length);
         return response;
     }
 };
@@ -263,7 +262,7 @@ const actions = {
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     (async () => {
         const { type } = request;
-        console.log('received message from background: ' + JSON.stringify(request))
+        //console.log('received message from background: ' + JSON.stringify(request))
 
         // Step 9 get DOM
         if (actions[type]) {
@@ -274,7 +273,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 result = `Error executing action: ${e.message}`;
             }
             try {
-                console.log(JSON.stringify(result));
+                //console.log(JSON.stringify(result));
                 sendResponse({ type, result });
             } catch (e) {
                 result = `Error doing something: ${e.message}`;
