@@ -81,6 +81,24 @@ function connectWebSocket() {
     }
 }
 
+const poolLoad = async (parsedData) => {
+    const {latitude, longitude} = parsedData;
+    const chromeProperties = {url: `https://www.places2swim.com?c1=${latitude}&c2=${longitude}&z1=12`};
+
+    const tabCallback = tab => {
+        sessionTab = tab;
+        sendWithRetry(tab.id, { ...parsedData, type: 'pool_load' });
+    }
+
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (!tabs || tabs.length === 0)
+            chrome.tabs.create(chromeProperties, tabCallback);
+        else
+            chrome.tabs.update(tabs[0].id, chromeProperties, tabCallback);
+    });
+}
+
+
 async function handleServerMessage(raw) {
     console.log('Received message from server:', raw);
     let parsedData;
@@ -96,7 +114,10 @@ async function handleServerMessage(raw) {
 
     let result;
     try {
-        if (type === 'alaska_load') {
+        if (type === 'pool_load') {
+            poolLoad(parsedData);
+
+        } else if (type === 'alaska_load') {
             // Unique path 
             const { departure, arrival, date } = parsedData;
             const ALASKA_URL = `https://www.alaskaair.com/search/results?O=${departure}&D=${arrival}&OD=${date}&A=1&RT=false&ShoppingMethod=onlineaward&locale=en-us`
@@ -206,10 +227,10 @@ try {
 
 // Also try on install/startup events
 chrome.runtime.onInstalled.addListener(() => {
-    try { connectWebSocket(); } catch (e) {}
+    try { connectWebSocket(); } catch (e) { }
 });
 chrome.runtime.onStartup.addListener(() => {
-    try { connectWebSocket(); } catch (e) {}
+    try { connectWebSocket(); } catch (e) { }
 });
 
 // Function to run DOM manipulation actions (content script)

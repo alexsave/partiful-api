@@ -3,6 +3,7 @@
     "name": "The Ultimate Chrome Extension",
     "version": "1.0",
     "permissions": [
+        "webRequest",
         "scripting",
         "activeTab",
         "tabs"

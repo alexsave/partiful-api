@@ -238,6 +238,21 @@ const actions = {
         
 
         return pageData
+    }, 
+    'pool_load': async () => {
+        const interceptPromise = callPageBridge('collectPool');
+
+        // Click the button after a delay to trigger the XHR
+        setTimeout(() => {
+            const listViewButton = document.querySelector('#btnSwitchViewList');
+            if (listViewButton) {
+                listViewButton.click();
+            }
+        }, 2000);
+
+        const response = await interceptPromise;
+        console.log('[pool_load] Got response:', response?.length);
+        return response;
     }
 };
 

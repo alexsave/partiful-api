@@ -48,6 +48,39 @@
           }
         })();
         respond(result);
+      } else if (name === 'collectPool') {
+        // Intercept POST /Home/GetUserFacilityList and return its response
+        const result = await new Promise((resolve) => {
+          const originalOpen = XMLHttpRequest.prototype.open;
+          const originalSend = XMLHttpRequest.prototype.send;
+
+          XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+            this._interceptedMethod = method;
+            this._interceptedUrl = url;
+            return originalOpen.apply(this, [method, url, ...rest]);
+          };
+
+          XMLHttpRequest.prototype.send = function(body) {
+            const isTarget = this._interceptedMethod === 'POST' && 
+              this._interceptedUrl.includes('/Home/GetUserFacilityList');
+
+            if (isTarget) {
+              this.addEventListener('load', function() {
+                // Restore original methods
+                XMLHttpRequest.prototype.open = originalOpen;
+                XMLHttpRequest.prototype.send = originalSend;
+
+                const response = this.responseType === '' || this.responseType === 'text' 
+                  ? this.responseText 
+                  : this.response;
+                resolve(response);
+              }, { once: true });
+            }
+
+            return originalSend.apply(this, [body]);
+          };
+        });
+        respond(result);
       } else {
         respond({ __error: 'Unknown bridge call: ' + name });
       }
