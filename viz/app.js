@@ -27,13 +27,18 @@ function initGlobe() {
                 <div>Hotel: ${d.hotel || 'N/A'}</div>
             </div>
         `)
+        .pointsTransitionDuration(1000)
         // Remaining cells as polygons
         .polygonsData([])
         .polygonGeoJsonGeometry(d => d.geometry)
-        .polygonCapColor(() => 'rgba(255, 107, 107, 0.15)')
+        .polygonCapColor(() => 'rgba(255, 107, 107, 0.35)')
         .polygonSideColor(() => 'rgba(0, 0, 0, 0)')
         .polygonStrokeColor(() => '#ff6b6b')
-        .polygonAltitude(0.001)
+        .polygonAltitude(0.008)
+        .polygonCapCurvatureResolution(5)
+        // Smooth transitions for data updates
+        .pointsMerge(true)
+        .polygonsTransitionDuration(1000)
         (globeContainer);
 
     globe.pointOfView({ lat: 30, lng: 0, altitude: 2.5 });
@@ -97,6 +102,10 @@ btnMap.addEventListener('click', () => switchView('map'));
 function switchView(view) {
     currentView = view;
     
+    // Clear persistent maps on view switch to force fresh render
+    persistentPoolMap.clear();
+    persistentCellMap.clear();
+    
     if (view === 'globe') {
         globeContainer.classList.remove('hidden');
         mapContainer.classList.add('hidden');
@@ -128,6 +137,18 @@ function switchView(view) {
 const EARTH_SURFACE_AREA_KM2 = 510100000;
 let currentData = null;
 let isFirstLoad = true;
+
+// Track last rendered state to avoid unnecessary re-renders
+let lastPublicFilter = '';
+let lastLengthFilter = '';
+
+// Persistent object maps - Globe.gl needs same object references to avoid re-init
+const persistentPoolMap = new Map();  // id -> pool object
+const persistentCellMap = new Map();  // key -> polygon object
+
+// The actual arrays passed to Globe.gl (we mutate these in-place)
+const globePoolsArray = [];
+const globePolygonsArray = [];
 
 const filterPublic = document.getElementById('filter-public');
 const filterLength = document.getElementById('filter-length');
@@ -247,9 +268,80 @@ function displayData(data, fitToData = false) {
     document.getElementById('coverage').textContent = `${(completedAreaKm2 / EARTH_SURFACE_AREA_KM2 * 100).toFixed(2)}%`;
     
     if (currentView === 'globe' && globe) {
-        // Update globe
-        globe.pointsData(filteredPools);
-        globe.polygonsData(cellsToGeoJSON(cells));
+        // Update pools in-place (reuse existing objects to prevent Globe.gl re-init)
+        const currentPoolIds = new Set(filteredPools.map(p => p.id));
+        
+        // Remove pools no longer present
+        for (const [id, obj] of persistentPoolMap) {
+            if (!currentPoolIds.has(id)) {
+                persistentPoolMap.delete(id);
+            }
+        }
+        
+        // Add/update pools
+        for (const pool of filteredPools) {
+            let obj = persistentPoolMap.get(pool.id);
+            if (!obj) {
+                obj = {};
+                persistentPoolMap.set(pool.id, obj);
+            }
+            // Update properties in-place
+            obj.id = pool.id;
+            obj.latitude = pool.latitude;
+            obj.longitude = pool.longitude;
+            obj.name = pool.name;
+            obj.length = pool.length;
+            obj.public = pool.public;
+            obj.hotel = pool.hotel;
+        }
+        
+        // Update cells in-place
+        const currentCellKeys = new Set(cells.map(c => `${c.latMin},${c.lonMin},${c.latMax},${c.lonMax}`));
+        
+        // Remove cells no longer present
+        for (const [key, obj] of persistentCellMap) {
+            if (!currentCellKeys.has(key)) {
+                persistentCellMap.delete(key);
+            }
+        }
+        
+        // Add cells (cells don't change, they just appear/disappear)
+        for (const cell of cells) {
+            const key = `${cell.latMin},${cell.lonMin},${cell.latMax},${cell.lonMax}`;
+            if (!persistentCellMap.has(key)) {
+                persistentCellMap.set(key, {
+                    geometry: {
+                        type: 'Polygon',
+                        coordinates: [[
+                            [cell.lonMin, cell.latMin],
+                            [cell.lonMin, cell.latMax],
+                            [cell.lonMax, cell.latMax],
+                            [cell.lonMax, cell.latMin],
+                            [cell.lonMin, cell.latMin]
+                        ]]
+                    }
+                });
+            }
+        }
+        
+        // Rebuild arrays from maps (keeping object references stable)
+        globePoolsArray.length = 0;
+        for (const obj of persistentPoolMap.values()) {
+            globePoolsArray.push(obj);
+        }
+        
+        globePolygonsArray.length = 0;
+        for (const obj of persistentCellMap.values()) {
+            globePolygonsArray.push(obj);
+        }
+        
+        console.log('[globe] Updating - pools:', globePoolsArray.length, 'cells:', globePolygonsArray.length);
+        
+        globe.pointsData(globePoolsArray);
+        globe.polygonsData(globePolygonsArray);
+        
+        lastPublicFilter = publicFilter;
+        lastLengthFilter = lengthFilter;
     } else if (currentView === 'map' && leafletMap) {
         // Update Leaflet map
         poolsLayer.clearLayers();
@@ -287,6 +379,10 @@ function displayData(data, fitToData = false) {
         if (fitToData && markers.length > 0) {
             leafletMap.fitBounds(L.featureGroup(markers).getBounds().pad(0.1));
         }
+        
+        // Update tracking for map view too
+        lastPublicFilter = publicFilter;
+        lastLengthFilter = lengthFilter;
     }
     
     console.log(`Loaded ${filteredCount} pools and ${cells.length} cells`);
@@ -294,16 +390,18 @@ function displayData(data, fitToData = false) {
 
 function startAutoRefresh() {
     setInterval(async () => {
+        console.log('[autoRefresh] Fetching data...');
         try {
             const response = await fetch('../pools.json');
             if (response.ok) {
                 const data = await response.json();
+                console.log('[autoRefresh] Got data - pools:', Object.keys(data.poolInfo || {}).length, 'cells:', (data.cells || []).length);
                 currentData = data;
                 populateFilterOptions(data.poolInfo || {});
                 displayData(data, false);
             }
         } catch (e) {
-            console.log('Auto-refresh failed');
+            console.log('[autoRefresh] Failed:', e);
         }
     }, 15000);
 }

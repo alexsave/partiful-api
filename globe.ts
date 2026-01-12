@@ -241,7 +241,7 @@ function cellAreaKm2(cell: LatLonCell): number {
         await sleep(15000);
 
         // Pop the next cell to process
-        const cellData = dataStore.cells.pop()!;
+        const cellData = dataStore.cells.shift()!;
         const cell = LatLonCell.fromData(cellData);
         const [latitude, longitude] = cell.center();
         const thisCellArea = cellAreaKm2(cell);
