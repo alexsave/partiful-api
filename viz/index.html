@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pool Globe Coverage</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+            background: #0a0a0f;
+            color: #e0e0e0;
+            min-height: 100vh;
+        }
+
+        #header {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            padding: 20px 30px;
+            border-bottom: 1px solid #0f4c75;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            background: linear-gradient(90deg, #00d4ff, #0099ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .stats {
+            display: flex;
+            gap: 30px;
+            flex-wrap: wrap;
+        }
+
+        .stat {
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: #00d4ff;
+        }
+
+        .stat-label {
+            font-size: 0.75rem;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .filters {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .filter-label {
+            font-size: 0.65rem;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .filter-select {
+            background: #0d1117;
+            border: 1px solid #0f4c75;
+            color: #e0e0e0;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-family: inherit;
+            font-size: 0.85rem;
+            cursor: pointer;
+            min-width: 120px;
+        }
+
+        .filter-select:hover {
+            border-color: #00d4ff;
+        }
+
+        .filter-select:focus {
+            outline: none;
+            border-color: #00d4ff;
+            box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.2);
+        }
+
+        #map {
+            height: calc(100vh - 90px);
+            width: 100%;
+        }
+
+        .leaflet-container {
+            background: #0d1117;
+        }
+
+        .pool-popup {
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 12px;
+        }
+
+        .pool-popup h3 {
+            margin: 0 0 8px 0;
+            color: #0099ff;
+            font-size: 14px;
+        }
+
+        .pool-popup p {
+            margin: 4px 0;
+            color: #333;
+        }
+
+        .legend {
+            position: absolute;
+            bottom: 30px;
+            right: 10px;
+            background: rgba(10, 10, 15, 0.95);
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #0f4c75;
+            z-index: 1000;
+            font-size: 12px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 8px 0;
+        }
+
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 4px;
+        }
+
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 2000;
+            background: rgba(10, 10, 15, 0.95);
+            padding: 30px 50px;
+            border-radius: 12px;
+            border: 1px solid #0f4c75;
+            text-align: center;
+        }
+
+        .loading-spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid #1a1a2e;
+            border-top-color: #00d4ff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .error {
+            color: #ff6b6b;
+            padding: 20px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div id="header">
+        <h1>🌊 Pool Globe Coverage</h1>
+        <div class="filters">
+            <div class="filter-group">
+                <span class="filter-label">Public</span>
+                <select id="filter-public" class="filter-select">
+                    <option value="">All</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <span class="filter-label">Length</span>
+                <select id="filter-length" class="filter-select">
+                    <option value="">All</option>
+                </select>
+            </div>
+        </div>
+        <div class="stats">
+            <div class="stat">
+                <div class="stat-value" id="pool-count">-</div>
+                <div class="stat-label">Pools Found</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value" id="cell-count">-</div>
+                <div class="stat-label">Cells Remaining</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value" id="coverage">-</div>
+                <div class="stat-label">Coverage</div>
+            </div>
+        </div>
+    </div>
+
+    <div id="map"></div>
+
+    <div class="legend">
+        <div class="legend-item">
+            <div class="legend-color" style="background: #00d4ff;"></div>
+            <span>Pool location</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: rgba(255, 107, 107, 0.3); border: 2px solid #ff6b6b;"></div>
+            <span>Remaining cell</span>
+        </div>
+    </div>
+
+    <div class="loading" id="loading">
+        <div class="loading-spinner"></div>
+        <div>Loading pool data...</div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

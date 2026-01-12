@@ -238,7 +238,7 @@ function cellAreaKm2(cell: LatLonCell): number {
     console.log(`Starting with ${dataStore.cells.length} cells and ${Object.keys(dataStore.poolInfo).length} pools (${coveragePct()}% covered)`);
 
     while (dataStore.cells.length > 0) {
-        await sleep(10000);
+        await sleep(15000);
 
         // Pop the next cell to process
         const cellData = dataStore.cells.pop()!;
