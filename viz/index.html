@@ -17,21 +17,28 @@
             background: #0a0a0f;
             color: #e0e0e0;
             min-height: 100vh;
+            overflow: hidden;
         }
 
         #header {
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-            padding: 20px 30px;
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(135deg, rgba(26, 26, 46, 0.95) 0%, rgba(22, 33, 62, 0.95) 100%);
+            padding: 15px 30px;
             border-bottom: 1px solid #0f4c75;
             display: flex;
             justify-content: space-between;
             align-items: center;
             flex-wrap: wrap;
             gap: 15px;
+            z-index: 1000;
+            backdrop-filter: blur(10px);
         }
 
         h1 {
-            font-size: 1.5rem;
+            font-size: 1.4rem;
             font-weight: 600;
             background: linear-gradient(90deg, #00d4ff, #0099ff);
             -webkit-background-clip: text;
@@ -39,27 +46,39 @@
             background-clip: text;
         }
 
-        .stats {
+        .controls {
             display: flex;
-            gap: 30px;
+            gap: 25px;
+            align-items: center;
             flex-wrap: wrap;
         }
 
-        .stat {
-            text-align: center;
+        .view-toggle {
+            display: flex;
+            background: #0d1117;
+            border-radius: 8px;
+            border: 1px solid #0f4c75;
+            overflow: hidden;
         }
 
-        .stat-value {
-            font-size: 1.8rem;
-            font-weight: 700;
-            color: #00d4ff;
-        }
-
-        .stat-label {
-            font-size: 0.75rem;
+        .view-btn {
+            padding: 8px 16px;
+            background: transparent;
+            border: none;
             color: #888;
-            text-transform: uppercase;
-            letter-spacing: 1px;
+            font-family: inherit;
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .view-btn:hover {
+            color: #e0e0e0;
+        }
+
+        .view-btn.active {
+            background: #0f4c75;
+            color: #00d4ff;
         }
 
         .filters {
@@ -76,7 +95,7 @@
         }
 
         .filter-label {
-            font-size: 0.65rem;
+            font-size: 0.6rem;
             color: #888;
             text-transform: uppercase;
             letter-spacing: 1px;
@@ -86,12 +105,12 @@
             background: #0d1117;
             border: 1px solid #0f4c75;
             color: #e0e0e0;
-            padding: 6px 12px;
+            padding: 5px 10px;
             border-radius: 6px;
             font-family: inherit;
-            font-size: 0.85rem;
+            font-size: 0.8rem;
             cursor: pointer;
-            min-width: 120px;
+            min-width: 100px;
         }
 
         .filter-select:hover {
@@ -104,41 +123,64 @@
             box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.2);
         }
 
-        #map {
-            height: calc(100vh - 90px);
-            width: 100%;
+        .stats {
+            display: flex;
+            gap: 25px;
+            flex-wrap: wrap;
+        }
+
+        .stat {
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 1.4rem;
+            font-weight: 700;
+            color: #00d4ff;
+        }
+
+        .stat-label {
+            font-size: 0.6rem;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        #globe-container, #map-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        #globe-container {
+            background: radial-gradient(ellipse at center, #1a1a2e 0%, #0a0a0f 100%);
+        }
+
+        #map-container {
+            background: #0d1117;
         }
 
         .leaflet-container {
             background: #0d1117;
         }
 
-        .pool-popup {
-            font-family: 'SF Mono', 'Fira Code', monospace;
-            font-size: 12px;
-        }
-
-        .pool-popup h3 {
-            margin: 0 0 8px 0;
-            color: #0099ff;
-            font-size: 14px;
-        }
-
-        .pool-popup p {
-            margin: 4px 0;
-            color: #333;
+        .hidden {
+            display: none !important;
         }
 
         .legend {
             position: absolute;
             bottom: 30px;
-            right: 10px;
-            background: rgba(10, 10, 15, 0.95);
+            right: 20px;
+            background: rgba(10, 10, 15, 0.9);
             padding: 15px;
             border-radius: 8px;
             border: 1px solid #0f4c75;
             z-index: 1000;
             font-size: 12px;
+            backdrop-filter: blur(10px);
         }
 
         .legend-item {
@@ -149,9 +191,9 @@
         }
 
         .legend-color {
-            width: 20px;
-            height: 20px;
-            border-radius: 4px;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
         }
 
         .loading {
@@ -186,50 +228,73 @@
             padding: 20px;
             text-align: center;
         }
+
+        .pool-popup {
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 12px;
+        }
+
+        .pool-popup h3 {
+            margin: 0 0 8px 0;
+            color: #0099ff;
+            font-size: 14px;
+        }
+
+        .pool-popup p {
+            margin: 4px 0;
+            color: #333;
+        }
     </style>
 </head>
 <body>
     <div id="header">
-        <h1>🌊 Pool Globe Coverage</h1>
-        <div class="filters">
-            <div class="filter-group">
-                <span class="filter-label">Public</span>
-                <select id="filter-public" class="filter-select">
-                    <option value="">All</option>
-                </select>
+        <h1>🌊 Pool Globe</h1>
+        <div class="controls">
+            <div class="view-toggle">
+                <button class="view-btn" id="btn-globe">🌍 Globe</button>
+                <button class="view-btn active" id="btn-map">🗺️ Map</button>
             </div>
-            <div class="filter-group">
-                <span class="filter-label">Length</span>
-                <select id="filter-length" class="filter-select">
-                    <option value="">All</option>
-                </select>
+            <div class="filters">
+                <div class="filter-group">
+                    <span class="filter-label">Public</span>
+                    <select id="filter-public" class="filter-select">
+                        <option value="">All</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <span class="filter-label">Length</span>
+                    <select id="filter-length" class="filter-select">
+                        <option value="">All</option>
+                    </select>
+                </div>
             </div>
-        </div>
-        <div class="stats">
-            <div class="stat">
-                <div class="stat-value" id="pool-count">-</div>
-                <div class="stat-label">Pools Found</div>
-            </div>
-            <div class="stat">
-                <div class="stat-value" id="cell-count">-</div>
-                <div class="stat-label">Cells Remaining</div>
-            </div>
-            <div class="stat">
-                <div class="stat-value" id="coverage">-</div>
-                <div class="stat-label">Coverage</div>
+            <div class="stats">
+                <div class="stat">
+                    <div class="stat-value" id="pool-count">-</div>
+                    <div class="stat-label">Pools</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value" id="cell-count">-</div>
+                    <div class="stat-label">Cells Left</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value" id="coverage">-</div>
+                    <div class="stat-label">Coverage</div>
+                </div>
             </div>
         </div>
     </div>
 
-    <div id="map"></div>
+    <div id="globe-container" class="hidden"></div>
+    <div id="map-container"></div>
 
     <div class="legend">
         <div class="legend-item">
-            <div class="legend-color" style="background: #00d4ff;"></div>
+            <div class="legend-color" style="background: #00d4ff; box-shadow: 0 0 8px #00d4ff;"></div>
             <span>Pool location</span>
         </div>
         <div class="legend-item">
-            <div class="legend-color" style="background: rgba(255, 107, 107, 0.3); border: 2px solid #ff6b6b;"></div>
+            <div class="legend-color" style="background: rgba(255, 107, 107, 0.5); border-radius: 3px;"></div>
             <span>Remaining cell</span>
         </div>
     </div>
@@ -239,6 +304,7 @@
         <div>Loading pool data...</div>
     </div>
 
+    <script src="https://unpkg.com/globe.gl@2.27.0/dist/globe.gl.min.js"></script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="app.js"></script>
 </body>
