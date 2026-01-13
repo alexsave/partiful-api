@@ -10,6 +10,11 @@ const SAVE_FILE = path.resolve(__dirname, './pools.json');
 
 // ============ GEOGRAPHIC HELPERS ============
 
+// Round coordinate to 7 decimal places (sub-centimeter precision), trim trailing zeros
+function roundCoord(val: number): number {
+    return Number(val.toFixed(7));
+}
+
 // Haversine distance in meters between two lat/lon points
 function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
     const R = 6371000; // Earth's radius in meters
@@ -238,10 +243,13 @@ function cellAreaKm2(cell: LatLonCell): number {
     console.log(`Starting with ${dataStore.cells.length} cells and ${Object.keys(dataStore.poolInfo).length} pools (${coveragePct()}% covered)`);
 
     while (dataStore.cells.length > 0) {
-        await sleep(15000);
+        await sleep(1000*15 + Math.random() * 1000*5);
 
-        // Pop the next cell to process
-        const cellData = dataStore.cells.shift()!;
+        // Pick a random cell to process
+        const idx = Math.floor(Math.random() * dataStore.cells.length);
+        //const cellData = dataStore.cells.splice(idx, 1)[0];
+        //const cellData = dataStore.cells.shift()!;
+        const cellData = dataStore.cells.pop()!;
         const cell = LatLonCell.fromData(cellData);
         const [latitude, longitude] = cell.center();
         const thisCellArea = cellAreaKm2(cell);
@@ -249,7 +257,7 @@ function cellAreaKm2(cell: LatLonCell): number {
         console.log(`Processing cell: lat [${cell.latMin}, ${cell.latMax}], lon [${cell.lonMin}, ${cell.lonMax}]`);
         console.log(`  Query point: (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`);
 
-        const data = await sendCommand({ type: 'pool_load', latitude, longitude });
+        const data = await sendCommand({ type: 'pool_load', latitude: roundCoord(latitude), longitude: roundCoord(longitude) });
 
         const list = JSON.parse(data.result).Data;
 

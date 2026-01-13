@@ -244,6 +244,193 @@
             margin: 4px 0;
             color: #333;
         }
+
+        /* Simulation Controls */
+        .sim-panel {
+            position: absolute;
+            bottom: 30px;
+            left: 20px;
+            background: rgba(10, 10, 15, 0.95);
+            padding: 20px;
+            border-radius: 12px;
+            border: 1px solid #0f4c75;
+            z-index: 1000;
+            backdrop-filter: blur(10px);
+            min-width: 280px;
+        }
+
+        .sim-title {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: #00d4ff;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .sim-row {
+            margin-bottom: 12px;
+        }
+
+        .sim-label {
+            font-size: 0.65rem;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 6px;
+        }
+
+        .traversal-buttons {
+            display: flex;
+            gap: 6px;
+        }
+
+        .traversal-btn {
+            flex: 1;
+            padding: 8px 12px;
+            background: #0d1117;
+            border: 1px solid #0f4c75;
+            color: #888;
+            font-family: inherit;
+            font-size: 0.7rem;
+            cursor: pointer;
+            border-radius: 6px;
+            transition: all 0.2s;
+        }
+
+        .traversal-btn:hover {
+            color: #e0e0e0;
+            border-color: #00d4ff;
+        }
+
+        .traversal-btn.active {
+            background: #0f4c75;
+            color: #00d4ff;
+            border-color: #00d4ff;
+        }
+
+        .sim-controls {
+            display: flex;
+            gap: 8px;
+            margin-top: 15px;
+        }
+
+        .sim-btn {
+            flex: 1;
+            padding: 10px 16px;
+            background: linear-gradient(135deg, #0f4c75 0%, #0a3552 100%);
+            border: 1px solid #00d4ff;
+            color: #00d4ff;
+            font-family: inherit;
+            font-size: 0.8rem;
+            font-weight: 600;
+            cursor: pointer;
+            border-radius: 8px;
+            transition: all 0.2s;
+        }
+
+        .sim-btn:hover {
+            background: linear-gradient(135deg, #1a5c85 0%, #0f4c75 100%);
+            box-shadow: 0 0 15px rgba(0, 212, 255, 0.3);
+        }
+
+        .sim-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .sim-btn.danger {
+            background: linear-gradient(135deg, #5c2020 0%, #3d1515 100%);
+            border-color: #ff6b6b;
+            color: #ff6b6b;
+        }
+
+        .sim-btn.danger:hover {
+            background: linear-gradient(135deg, #7a2a2a 0%, #5c2020 100%);
+            box-shadow: 0 0 15px rgba(255, 107, 107, 0.3);
+        }
+
+        .speed-slider {
+            width: 100%;
+            -webkit-appearance: none;
+            appearance: none;
+            height: 6px;
+            background: #0d1117;
+            border-radius: 3px;
+            outline: none;
+            border: 1px solid #0f4c75;
+        }
+
+        .speed-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            background: #00d4ff;
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 0 8px rgba(0, 212, 255, 0.5);
+        }
+
+        .speed-slider::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            background: #00d4ff;
+            border-radius: 50%;
+            cursor: pointer;
+            border: none;
+            box-shadow: 0 0 8px rgba(0, 212, 255, 0.5);
+        }
+
+        .speed-value {
+            font-size: 0.75rem;
+            color: #00d4ff;
+            text-align: center;
+            margin-top: 5px;
+        }
+
+        .sim-progress {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #0f4c75;
+        }
+
+        .progress-bar-container {
+            width: 100%;
+            height: 8px;
+            background: #0d1117;
+            border-radius: 4px;
+            overflow: hidden;
+            border: 1px solid #0f4c75;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #00d4ff, #0099ff);
+            border-radius: 4px;
+            transition: width 0.3s ease;
+        }
+
+        .progress-text {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 8px;
+            font-size: 0.7rem;
+            color: #888;
+        }
+
+        .progress-text span {
+            color: #00d4ff;
+        }
+
+        /* Current cell highlight */
+        .current-cell-marker {
+            stroke: #ffcc00 !important;
+            stroke-width: 3 !important;
+            fill: rgba(255, 204, 0, 0.3) !important;
+        }
+
     </style>
 </head>
 <body>
@@ -271,7 +458,7 @@
             <div class="stats">
                 <div class="stat">
                     <div class="stat-value" id="pool-count">-</div>
-                    <div class="stat-label">Pools</div>
+                    <div class="stat-label">Pools Found</div>
                 </div>
                 <div class="stat">
                     <div class="stat-value" id="cell-count">-</div>
@@ -296,6 +483,52 @@
         <div class="legend-item">
             <div class="legend-color" style="background: rgba(255, 107, 107, 0.5); border-radius: 3px;"></div>
             <span>Remaining cell</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background: rgba(255, 204, 0, 0.5); border: 2px solid #ffcc00; border-radius: 3px;"></div>
+            <span>Current cell</span>
+        </div>
+    </div>
+
+    <div class="sim-panel">
+        <div class="sim-title">
+            <span>⚡</span> Search Simulation
+        </div>
+        
+        <div class="sim-row">
+            <div class="sim-label">Traversal Mode</div>
+            <div class="traversal-buttons">
+                <button class="traversal-btn" id="mode-pop" title="Depth-first: process newest cells first">
+                    📥 Pop<br><small style="opacity:0.6">depth</small>
+                </button>
+                <button class="traversal-btn" id="mode-shift" title="Breadth-first: process oldest cells first">
+                    📤 Shift<br><small style="opacity:0.6">breadth</small>
+                </button>
+                <button class="traversal-btn active" id="mode-random" title="Random: process random cells">
+                    🎲 Random<br><small style="opacity:0.6">chaotic</small>
+                </button>
+            </div>
+        </div>
+
+        <div class="sim-row">
+            <div class="sim-label">Speed (ms delay)</div>
+            <input type="range" class="speed-slider" id="speed-slider" min="10" max="2000" value="200">
+            <div class="speed-value" id="speed-value">200ms</div>
+        </div>
+
+        <div class="sim-controls">
+            <button class="sim-btn" id="btn-start">▶ Start</button>
+            <button class="sim-btn danger" id="btn-reset">↺ Reset</button>
+        </div>
+
+        <div class="sim-progress">
+            <div class="progress-bar-container">
+                <div class="progress-bar" id="progress-bar" style="width: 0%"></div>
+            </div>
+            <div class="progress-text">
+                <div>Queries: <span id="query-count">0</span></div>
+                <div>Subdivisions: <span id="subdivide-count">0</span></div>
+            </div>
         </div>
     </div>
 
