@@ -143,6 +143,44 @@ function RhatFromPools(qLat, qLon, pools) {
     return maxD;
 }
 
+// ============ DISPLAY MODE ============
+
+let displayMode = 'view'; // 'view' = show all pools, 'sim' = simulation mode
+
+function setDisplayMode(mode) {
+    displayMode = mode;
+    
+    const btnModeView = document.getElementById('btn-mode-view');
+    const btnModeSim = document.getElementById('btn-mode-sim');
+    const simPanel = document.getElementById('sim-panel');
+    
+    if (mode === 'view') {
+        document.body.classList.add('view-mode');
+        btnModeView.classList.add('active');
+        btnModeSim.classList.remove('active');
+        simPanel.classList.add('hidden');
+        
+        // Stop any running simulation
+        simState.running = false;
+        updateSimUI();
+    } else {
+        document.body.classList.remove('view-mode');
+        btnModeView.classList.remove('active');
+        btnModeSim.classList.add('active');
+        simPanel.classList.remove('hidden');
+        
+        // Initialize simulation if not already
+        if (simState.cells.length === 0 && simState.discoveredPools.size === 0) {
+            resetSimulation();
+            return; // resetSimulation already calls updateStats and renderVisualization
+        }
+    }
+    
+    clearPersistentMaps();
+    updateStats();
+    renderVisualization();
+}
+
 // ============ SIMULATION STATE ============
 
 let simState = {
@@ -263,7 +301,12 @@ function coveragePct() {
 }
 
 function updateStats() {
-    document.getElementById('pool-count').textContent = simState.discoveredPools.size.toLocaleString();
+    // In view mode, show total pools. In sim mode, show discovered pools.
+    const poolCount = displayMode === 'view' 
+        ? allPoolsArray.length 
+        : simState.discoveredPools.size;
+    
+    document.getElementById('pool-count').textContent = poolCount.toLocaleString();
     document.getElementById('cell-count').textContent = simState.cells.length.toLocaleString();
     document.getElementById('coverage').textContent = `${coveragePct()}%`;
     document.getElementById('query-count').textContent = simState.queryCount;
@@ -474,17 +517,30 @@ function clearPersistentMaps() {
 }
 
 function renderVisualization() {
-    const pools = Array.from(simState.discoveredPools.values());
-    const cells = simState.cells;
-    const currentCell = simState.currentCellData;
+    // In view mode, show all pools. In sim mode, show only discovered pools.
+    const pools = displayMode === 'view' 
+        ? allPoolsArray 
+        : Array.from(simState.discoveredPools.values());
+    
+    // Only show cells in simulation mode
+    const cells = displayMode === 'sim' ? simState.cells : [];
+    const currentCell = displayMode === 'sim' ? simState.currentCellData : null;
     
     // Apply filters
     const publicFilter = filterPublic.value;
-    const lengthFilter = filterLength.value;
+    const lengthMin = filterLengthMin.value ? parseFloat(filterLengthMin.value) : null;
+    const lengthMax = filterLengthMax.value ? parseFloat(filterLengthMax.value) : null;
     
     const filteredPools = pools.filter(pool => {
         if (publicFilter && pool.public !== publicFilter) return false;
-        if (lengthFilter && pool.length !== lengthFilter) return false;
+        
+        // Length range filter
+        if (lengthMin !== null || lengthMax !== null) {
+            const poolLength = parseLengthMeters(pool.length);
+            if (poolLength === null) return false; // No length data
+            if (lengthMin !== null && poolLength < lengthMin) return false;
+            if (lengthMax !== null && poolLength > lengthMax) return false;
+        }
         return true;
     });
     
@@ -629,21 +685,26 @@ function renderVisualization() {
 // ============ FILTERS ============
 
 const filterPublic = document.getElementById('filter-public');
-const filterLength = document.getElementById('filter-length');
+const filterLengthMin = document.getElementById('filter-length-min');
+const filterLengthMax = document.getElementById('filter-length-max');
 
 filterPublic.addEventListener('change', renderVisualization);
-filterLength.addEventListener('change', renderVisualization);
+filterLengthMin.addEventListener('input', renderVisualization);
+filterLengthMax.addEventListener('input', renderVisualization);
+
+function parseLengthMeters(lengthStr) {
+    if (!lengthStr) return null;
+    const match = lengthStr.match(/^([\d.]+)m$/);
+    return match ? parseFloat(match[1]) : null;
+}
 
 function populateFilterOptions(pools) {
     const currentPublic = filterPublic.value;
-    const currentLength = filterLength.value;
     
     const publicValues = new Set();
-    const lengthValues = new Set();
     
     pools.forEach(pool => {
         if (pool.public) publicValues.add(pool.public);
-        if (pool.length) lengthValues.add(pool.length);
     });
     
     const sortedPublic = [...publicValues].sort();
@@ -652,24 +713,7 @@ function populateFilterOptions(pools) {
         filterPublic.innerHTML += `<option value="${val}">${val}</option>`;
     });
     
-    const sortedLength = [...lengthValues].sort((a, b) => {
-        const parseLen = (s) => {
-            const match = s.match(/(\d+)(m|y)/);
-            if (!match) return { num: 999, unit: 'z', raw: s };
-            return { num: parseInt(match[1]), unit: match[2], raw: s };
-        };
-        const pa = parseLen(a), pb = parseLen(b);
-        if (pa.unit !== pb.unit) return pa.unit.localeCompare(pb.unit);
-        return pa.num - pb.num;
-    });
-    
-    filterLength.innerHTML = '<option value="">All</option>';
-    sortedLength.forEach(val => {
-        filterLength.innerHTML += `<option value="${val}">${val}</option>`;
-    });
-    
     if (currentPublic && publicValues.has(currentPublic)) filterPublic.value = currentPublic;
-    if (currentLength && lengthValues.has(currentLength)) filterLength.value = currentLength;
 }
 
 // ============ SIMULATION CONTROLS ============
@@ -713,6 +757,10 @@ btnReset.addEventListener('click', () => {
     resetSimulation();
 });
 
+// Display mode toggle
+document.getElementById('btn-mode-view').addEventListener('click', () => setDisplayMode('view'));
+document.getElementById('btn-mode-sim').addEventListener('click', () => setDisplayMode('sim'));
+
 // ============ INITIALIZATION ============
 
 async function loadPoolData() {
@@ -729,13 +777,15 @@ async function loadPoolData() {
         const poolInfo = data.poolInfo || {};
         allPoolsArray = Object.values(poolInfo);
         
-        console.log(`Loaded ${allPoolsArray.length} pools for simulation`);
+        console.log(`Loaded ${allPoolsArray.length} pools`);
         
         // Populate filter options from full dataset
         populateFilterOptions(allPoolsArray);
         
-        // Initialize simulation
-        resetSimulation();
+        // Initialize in view mode (default)
+        document.body.classList.add('view-mode');
+        updateStats();
+        renderVisualization();
         
     } catch (error) {
         loading.innerHTML = `

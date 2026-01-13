@@ -123,6 +123,52 @@
             box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.2);
         }
 
+        .length-range {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .filter-input {
+            background: #0d1117;
+            border: 1px solid #0f4c75;
+            color: #e0e0e0;
+            padding: 5px 8px;
+            border-radius: 6px;
+            font-family: inherit;
+            font-size: 0.8rem;
+            width: 70px;
+        }
+
+        .filter-input:hover {
+            border-color: #00d4ff;
+        }
+
+        .filter-input:focus {
+            outline: none;
+            border-color: #00d4ff;
+            box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.2);
+        }
+
+        .filter-input::placeholder {
+            color: #555;
+        }
+
+        /* Hide number input spinners */
+        .filter-input::-webkit-outer-spin-button,
+        .filter-input::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+        .filter-input[type=number] {
+            -moz-appearance: textfield;
+        }
+
+        .range-separator {
+            color: #555;
+            font-size: 0.9rem;
+        }
+
         .stats {
             display: flex;
             gap: 25px;
@@ -167,6 +213,11 @@
         }
 
         .hidden {
+            display: none !important;
+        }
+
+        /* Hide simulation-specific elements in view mode */
+        body.view-mode .sim-only {
             display: none !important;
         }
 
@@ -441,6 +492,10 @@
                 <button class="view-btn" id="btn-globe">🌍 Globe</button>
                 <button class="view-btn active" id="btn-map">🗺️ Map</button>
             </div>
+            <div class="view-toggle" style="margin-left: 10px;">
+                <button class="view-btn active" id="btn-mode-view">📊 View All</button>
+                <button class="view-btn" id="btn-mode-sim">⚡ Simulate</button>
+            </div>
             <div class="filters">
                 <div class="filter-group">
                     <span class="filter-label">Public</span>
@@ -449,22 +504,24 @@
                     </select>
                 </div>
                 <div class="filter-group">
-                    <span class="filter-label">Length</span>
-                    <select id="filter-length" class="filter-select">
-                        <option value="">All</option>
-                    </select>
+                    <span class="filter-label">Length (m)</span>
+                    <div class="length-range">
+                        <input type="number" id="filter-length-min" class="filter-input" placeholder="Min" min="0" step="1">
+                        <span class="range-separator">–</span>
+                        <input type="number" id="filter-length-max" class="filter-input" placeholder="Max" min="0" step="1">
+                    </div>
                 </div>
             </div>
             <div class="stats">
                 <div class="stat">
                     <div class="stat-value" id="pool-count">-</div>
-                    <div class="stat-label">Pools Found</div>
+                    <div class="stat-label">Pools</div>
                 </div>
-                <div class="stat">
+                <div class="stat sim-only">
                     <div class="stat-value" id="cell-count">-</div>
                     <div class="stat-label">Cells Left</div>
                 </div>
-                <div class="stat">
+                <div class="stat sim-only">
                     <div class="stat-value" id="coverage">-</div>
                     <div class="stat-label">Coverage</div>
                 </div>
@@ -480,17 +537,17 @@
             <div class="legend-color" style="background: #00d4ff; box-shadow: 0 0 8px #00d4ff;"></div>
             <span>Pool location</span>
         </div>
-        <div class="legend-item">
+        <div class="legend-item sim-only">
             <div class="legend-color" style="background: rgba(255, 107, 107, 0.5); border-radius: 3px;"></div>
             <span>Remaining cell</span>
         </div>
-        <div class="legend-item">
+        <div class="legend-item sim-only">
             <div class="legend-color" style="background: rgba(255, 204, 0, 0.5); border: 2px solid #ffcc00; border-radius: 3px;"></div>
             <span>Current cell</span>
         </div>
     </div>
 
-    <div class="sim-panel">
+    <div class="sim-panel hidden" id="sim-panel">
         <div class="sim-title">
             <span>⚡</span> Search Simulation
         </div>
