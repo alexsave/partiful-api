@@ -125,7 +125,7 @@ function generateInitialCells() {
 let allPoolsArray = []; // Loaded from pools.json
 
 // Simulates querying for the N closest pools to a point
-function queryClosestPools(lat, lon, limit = 50) {
+function queryClosestPools(lat, lon, limit) {
     const poolsWithDistance = allPoolsArray.map(pool => ({
         pool,
         distance: haversineMeters(lat, lon, pool.latitude, pool.longitude)
@@ -192,6 +192,7 @@ let simState = {
     subdivideCount: 0,
     traversalMode: 'random', // 'pop', 'shift', 'random'
     speed: 200,
+    poolLimit: 50, // Number of closest pools returned per query
     currentCellData: null
 };
 
@@ -257,7 +258,7 @@ async function simulationStep() {
     simState.queryCount++;
     
     // Query the 50 closest pools
-    const closestPools = queryClosestPools(lat, lon, 50);
+    const closestPools = queryClosestPools(lat, lon, simState.poolLimit);
     
     if (closestPools.length === 0) {
         // No pools anywhere near, cell is complete
@@ -723,6 +724,8 @@ const modeShift = document.getElementById('mode-shift');
 const modeRandom = document.getElementById('mode-random');
 const speedSlider = document.getElementById('speed-slider');
 const speedValue = document.getElementById('speed-value');
+const poolLimitSlider = document.getElementById('pool-limit-slider');
+const poolLimitValue = document.getElementById('pool-limit-value');
 const btnStart = document.getElementById('btn-start');
 const btnReset = document.getElementById('btn-reset');
 
@@ -740,6 +743,11 @@ modeRandom.addEventListener('click', () => setTraversalMode('random'));
 speedSlider.addEventListener('input', () => {
     simState.speed = parseInt(speedSlider.value);
     speedValue.textContent = `${simState.speed}ms`;
+});
+
+poolLimitSlider.addEventListener('input', () => {
+    simState.poolLimit = parseInt(poolLimitSlider.value);
+    poolLimitValue.textContent = `${simState.poolLimit} pools`;
 });
 
 btnStart.addEventListener('click', () => {

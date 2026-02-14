@@ -569,8 +569,14 @@
 
         <div class="sim-row">
             <div class="sim-label">Speed (ms delay)</div>
-            <input type="range" class="speed-slider" id="speed-slider" min="10" max="2000" value="200">
+            <input type="range" class="speed-slider" id="speed-slider" min="0" max="2000" value="200">
             <div class="speed-value" id="speed-value">200ms</div>
+        </div>
+
+        <div class="sim-row">
+            <div class="sim-label">Pools per Query</div>
+            <input type="range" class="speed-slider" id="pool-limit-slider" min="1" max="1000" value="50">
+            <div class="speed-value" id="pool-limit-value">50 pools</div>
         </div>
 
         <div class="sim-controls">
