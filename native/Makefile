@@ -4,7 +4,7 @@ jigsaw2pdf: jigsaw2pdf.c
 	$(CC) $(CFLAGS) -o $@ $<
 
 test: jigsaw2pdf
-	./test/run.sh
+	node test/run.ts
 
 clean:
 	rm -f jigsaw2pdf
