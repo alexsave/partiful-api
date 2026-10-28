@@ -2,3 +2,6 @@
 node_modules
 *.swp
 *.json
+scribd-out/
+native/jigsaw2pdf
+__pycache__/

@@ -1,25 +1,12 @@
 const { initializeServer, sendCommand, shutdownServer } = require('./utils/webutils');
-const { spawn } = require('child_process');
+const { killExistingChrome, launchChrome, EXT_PATH } = require('./utils/chrome');
 const path = require('path');
 const fs = require('fs');
 
-const CHROME_PATH = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const EXT_PATH = path.resolve(__dirname, './chrome_ext');
-const PORT = 9222;
 const CACHE_FILE = path.resolve(__dirname, './youtube.json');
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const randomDelay = (baseMs) => baseMs + Math.floor(Math.random() * Math.floor(baseMs * 0.5));
-
-const killExistingChrome = () => new Promise((resolve) => {
-    try {
-        const killer = spawn('pkill', ['-f', 'Google Chrome']);
-        killer.on('error', () => resolve(undefined));
-        killer.on('close', () => resolve(undefined));
-    } catch (_) {
-        resolve(undefined);
-    }
-});
 
 const getHandleFromArg = (input) => {
     if (!input) return null;
@@ -65,25 +52,9 @@ const saveCache = (cacheObj) => {
 
     await killExistingChrome();
 
-    const chromeArgs = [
-        `--remote-debugging-port=${PORT}`,
-        `--load-extension=${EXT_PATH}`,
-        '--no-first-run',
-        '--no-default-browser-check',
-        '--new-window',
-        // Keep background/occluded tabs running reliably
-        '--disable-background-timer-throttling',
-        '--disable-backgrounding-occluded-windows',
-        '--disable-renderer-backgrounding',
-        '--disable-features=CalculateNativeWinOcclusion',
-        // Avoid autoplay gating and mute globally as a safety
-        '--autoplay-policy=no-user-gesture-required',
-        '--mute-audio',
-    ];
-
     console.log('[youtube] Spawning Chrome...');
-    const chrome = spawn(CHROME_PATH, chromeArgs, { detached: true, stdio: 'ignore' });
-    chrome.unref();
+    // Avoid autoplay gating and mute globally as a safety
+    launchChrome(['--autoplay-policy=no-user-gesture-required', '--mute-audio']);
     console.log('[youtube] Chrome spawned.');
 
     initializeServer();

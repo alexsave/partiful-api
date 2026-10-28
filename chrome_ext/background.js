@@ -169,6 +169,22 @@ async function handleServerMessage(raw) {
                     chrome.tabs.update(tabs[0].id, { url: YT_URL }, tabSendRetry);
                 }
             });
+        } else if (type === 'scribd-open') {
+            // Opens the document, then takes the first step from the top of the page
+            const tabSendRetry = tab => {
+                sessionTab = tab;
+                sendWithRetry(tab.id, { type: 'scribd-step', scrollTo: 0, settleMs: 3000 });
+            }
+
+            chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+                if (!tabs || tabs.length === 0) {
+                    chrome.tabs.create({ url: parsedData.url }, tabSendRetry);
+                } else {
+                    chrome.tabs.update(tabs[0].id, { url: parsedData.url }, tabSendRetry);
+                }
+            });
+        } else if (type === 'scribd-step') {
+            sendWithRetry(sessionTab.id, parsedData);
         } else if (['load'].includes(type)) {
             chrome.tabs.create({ url: parsedData.url }, (tab) => {
                 const tabSend = () => {

@@ -115,8 +115,58 @@ const callPageBridge = async (name, args) => {
     });
 };
 
+// Reads every rendered Scribd page as its jigsaw pieces: absolutely positioned <img>s,
+// each showing a CSS clip rect of a shared image sheet. Values are unscaled CSS px.
+const collectScribdPages = () => {
+    const px = v => parseFloat(v) || 0;
+    const pages = [];
+    document.querySelectorAll('.newpage').forEach(pageEl => {
+        const match = (pageEl.id || '').match(/^page(\d+)$/);
+        if (!match) return;
+        const pieces = [];
+        pageEl.querySelectorAll('img.absimg').forEach(img => {
+            const src = img.getAttribute('src');
+            const orig = img.getAttribute('orig');
+            if (!src && !orig) return;
+            const width = px(img.style.width) || img.naturalWidth;
+            const height = px(img.style.height) || img.naturalHeight;
+            // clip: rect(top, right, bottom, left); "auto" means the element's own edge.
+            const edges = (img.style.clip.match(/rect\(([^)]*)\)/) || [, ''])[1].split(/[\s,]+/).filter(Boolean);
+            const edge = (i, fallback) => (edges[i] && edges[i] !== 'auto' ? px(edges[i]) : fallback);
+            pieces.push({
+                src, orig,
+                left: px(img.style.left), top: px(img.style.top), width, height,
+                clip: [edge(0, 0), edge(1, width), edge(2, height), edge(3, 0)],
+            });
+        });
+        // Pages scrolled into view render their pieces a moment later; skip until they do.
+        if (pieces.length) {
+            pages.push({ pageNum: Number(match[1]), width: px(pageEl.style.width), height: px(pageEl.style.height), pieces });
+        }
+    });
+    return pages;
+};
+
 // Define the available DOM actions in content.js
 const actions = {
+    // One step of walking a Scribd document: scroll, let pages render, report what is on screen.
+    // The server drives the loop so every round trip stays short.
+    // Scrolling is in viewports, so step size follows the window and Scribd's zoom.
+    'scribd-step': async ({ scrollTo, scrollViewports, settleMs }) => {
+        if (typeof scrollTo === 'number') window.scrollTo(0, scrollTo);
+        if (typeof scrollViewports === 'number') window.scrollBy({ top: window.innerHeight * scrollViewports, behavior: 'smooth' });
+        await sleep(settleMs || 650);
+        const maxScroll = document.body.scrollHeight - window.innerHeight;
+        const ids = Array.from(document.querySelectorAll('.newpage'))
+            .map(el => Number(((el.id || '').match(/^page(\d+)$/) || [])[1]))
+            .filter(Boolean);
+        return {
+            pages: collectScribdPages(),
+            atBottom: window.scrollY >= maxScroll - 20,
+            maxPageNum: ids.length ? Math.max(...ids) : 0,
+        };
+    },
+
     'get-summary': async () => {
         await waitForNetworkIdle();
         return {
