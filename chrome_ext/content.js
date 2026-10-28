@@ -307,6 +307,9 @@ const actions = {
 
 //console.log("WHOOO running content.js on this site")
 
+// Wake the background worker so it reconnects to the local server if it was asleep
+try { chrome.runtime.sendMessage({ type: 'wake' }, () => void chrome.runtime.lastError); } catch (_) {}
+
 // Listen for messages from background.js
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {

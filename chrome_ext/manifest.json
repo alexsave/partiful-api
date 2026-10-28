@@ -6,7 +6,8 @@
         "webRequest",
         "scripting",
         "activeTab",
-        "tabs"
+        "tabs",
+        "alarms"
     ],
     "background": {
         "service_worker": "background.js"

@@ -1,11 +1,12 @@
 // Saves a Scribd document as a PDF.
 // Usage: node scribd.ts <scribd document url> [out.pdf]
 //
-// Uses the Chrome you already have open: load chrome_ext there and be logged in to Scribd
-// if the document needs it. The extension walks the document in the active tab and reports
+// Uses your own Chrome (started if it is not running): load chrome_ext there and be logged in
+// to Scribd if the document needs it. The extension walks the document in a new tab and reports
 // each page's jigsaw pieces, this script downloads the image sheets into scribd-out/<doc>/,
 // and native/jigsaw2pdf assembles them.
 const { initializeServer, sendCommand, shutdownServer, waitForClient } = require('./utils/webutils');
+const { openInChrome } = require('./utils/chrome.ts');
 const { spawnSync } = require('child_process');
 const crypto = require('crypto');
 const path = require('path');
@@ -18,7 +19,7 @@ const SCROLL_STEP = 0.25;   // Viewports per step, small so pages don't fly past
 const SCROLL_SETTLE = 650;  // Pause to let the DOM settle and render
 const BOTTOM_ROUNDS = 6;    // Steps at the bottom before trusting it is the end
 const DOWNLOAD_DELAY = 100; // Polite delay between sheet downloads
-const CONNECT_TIMEOUT = 30000;
+const CONNECT_TIMEOUT = 75000; // Covers a cold Chrome start plus one 30s reconnect alarm
 
 // Shapes produced by collectScribdPages in chrome_ext/content.js, in unscaled CSS px
 type Piece = {
@@ -178,6 +179,7 @@ const main = async () => {
 
     initializeServer();
     try {
+        console.log(openInChrome(docUrl) ? '[scribd] Using the open Chrome' : '[scribd] Started Chrome');
         console.log('[scribd] Waiting for the Chrome extension to connect...');
         await waitForClient(CONNECT_TIMEOUT);
 

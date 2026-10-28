@@ -1,7 +1,7 @@
 // Starts a Chrome that the extension in chrome_ext can drive.
 // Chrome only honors --load-extension on the default profile sometimes, so keep the
 // extension loaded manually in chrome://extensions as well.
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const path = require('path');
 
 const CHROME_PATH = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
@@ -38,4 +38,15 @@ const launchChrome = (extraArgs = []) => {
     return chrome;
 };
 
-module.exports = { killExistingChrome, launchChrome, EXT_PATH };
+const isChromeRunning = (): boolean => spawnSync('pgrep', ['-x', 'Google Chrome']).status === 0;
+
+// Opens url in the user's own Chrome, starting it if needed, with their profile and
+// manually installed extension. The page load also wakes the extension's worker.
+const openInChrome = (url: string): boolean => {
+    const running = isChromeRunning();
+    const opened = spawnSync('open', ['-a', 'Google Chrome', url]);
+    if (opened.status !== 0) throw new Error(`Could not open Chrome: ${opened.stderr}`);
+    return running;
+};
+
+module.exports = { killExistingChrome, launchChrome, isChromeRunning, openInChrome, EXT_PATH };

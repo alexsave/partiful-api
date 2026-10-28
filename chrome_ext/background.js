@@ -249,6 +249,18 @@ chrome.runtime.onStartup.addListener(() => {
     try { connectWebSocket(); } catch (e) { }
 });
 
+// A sleeping service worker loses its retry timers, so wake it two ways: every page load
+// pings it from content.js, and an alarm fires every 30s (the shortest Chrome allows).
+chrome.runtime.onMessage.addListener((message) => {
+    if (message && message.type === 'wake') {
+        try { connectWebSocket(); } catch (e) { }
+    }
+});
+chrome.alarms.create('reconnect', { periodInMinutes: 0.5 });
+chrome.alarms.onAlarm.addListener(() => {
+    try { connectWebSocket(); } catch (e) { }
+});
+
 // Function to run DOM manipulation actions (content script)
 function runDomAction(action, params) {
     const actions = {
