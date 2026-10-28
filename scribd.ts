@@ -1,11 +1,11 @@
 // Saves a Scribd document as a PDF.
-// Usage: node scribd.js <scribd document url> [out.pdf]
+// Usage: node scribd.ts <scribd document url> [out.pdf]
 //
-// Chrome must have chrome_ext loaded and be logged in to Scribd if the document needs it.
-// The extension walks the document and reports each page's jigsaw pieces, this script
-// downloads the image sheets into scribd-out/<doc>/, and native/jigsaw2pdf assembles them.
-const { initializeServer, sendCommand, shutdownServer } = require('./utils/webutils');
-const { killExistingChrome, launchChrome } = require('./utils/chrome');
+// Uses the Chrome you already have open: load chrome_ext there and be logged in to Scribd
+// if the document needs it. The extension walks the document in the active tab and reports
+// each page's jigsaw pieces, this script downloads the image sheets into scribd-out/<doc>/,
+// and native/jigsaw2pdf assembles them.
+const { initializeServer, sendCommand, shutdownServer, waitForClient } = require('./utils/webutils');
 const { spawnSync } = require('child_process');
 const crypto = require('crypto');
 const path = require('path');
@@ -18,38 +18,52 @@ const SCROLL_STEP = 0.25;   // Viewports per step, small so pages don't fly past
 const SCROLL_SETTLE = 650;  // Pause to let the DOM settle and render
 const BOTTOM_ROUNDS = 6;    // Steps at the bottom before trusting it is the end
 const DOWNLOAD_DELAY = 100; // Polite delay between sheet downloads
+const CONNECT_TIMEOUT = 30000;
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+// Shapes produced by collectScribdPages in chrome_ext/content.js, in unscaled CSS px
+type Piece = {
+    src: string | null;
+    orig: string | null;
+    left: number; top: number; width: number; height: number;
+    clip: number[]; // top, right, bottom, left
+    file?: string;
+};
+type ScribdPage = { pageNum: number; width: number; height: number; pieces: Piece[] };
+type StepResult = { pages: ScribdPage[]; atBottom: boolean; maxPageNum: number };
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // https://www.scribd.com/document/123456/Some-Title -> 123456-Some-Title
-const docSlug = (docUrl) => {
-    const parts = new URL(docUrl).pathname.split('/').filter(Boolean);
+const docSlug = (docUrl: string): string => {
+    const parts = decodeURIComponent(new URL(docUrl).pathname).split('/').filter(Boolean);
     const idIndex = parts.findIndex(x => /^\d+$/.test(x));
     const slug = (idIndex >= 0 ? parts.slice(idIndex, idIndex + 2) : parts.slice(-1)).join('-');
-    return slug.replace(/[^A-Za-z0-9._-]/g, '_') || `doc-${Date.now()}`;
+    // Keep letters from any script so non-Latin titles stay readable
+    return slug.replace(/[^\p{L}\p{N}._-]/gu, '_') || `doc-${Date.now()}`;
 };
 
-const sheetFileName = (url) => {
+const sheetFileName = (url: string): string => {
     const match = url.match(/\/images\/([A-Za-z0-9_-]+\.jpg)/);
     return match ? match[1] : `${crypto.createHash('sha1').update(url).digest('hex')}.jpg`;
 };
 
 // sendCommand resolves with whatever message arrives next, so retry anything that is
 // not a step result (a reconnect greeting, for one).
-const step = async (command) => {
+const step = async (command: object): Promise<StepResult> => {
     for (let attempt = 1; ; attempt++) {
         const resp = await sendCommand(command);
         if (resp && resp.result && Array.isArray(resp.result.pages)) return resp.result;
-        if (attempt >= 3) throw new Error(`Unexpected response to ${command.type}: ${JSON.stringify(resp).slice(0, 200)}`);
-        console.log(`[scribd] Unexpected response, retrying: ${JSON.stringify(resp).slice(0, 200)}`);
+        const shown = JSON.stringify(resp).slice(0, 200);
+        if (attempt >= 3) throw new Error(`Unexpected response to ${JSON.stringify(command)}: ${shown}`);
+        console.log(`[scribd] Unexpected response, retrying: ${shown}`);
         await sleep(1000);
     }
 };
 
-const collectPages = async (docUrl) => {
-    const pages = new Map();
+const collectPages = async (docUrl: string) => {
+    const pages = new Map<number, ScribdPage>();
     let maxPageNum = 0;
-    const merge = (result) => {
+    const merge = (result: StepResult) => {
         maxPageNum = Math.max(maxPageNum, result.maxPageNum || 0);
         for (const page of result.pages) {
             const known = pages.get(page.pageNum);
@@ -71,13 +85,13 @@ const collectPages = async (docUrl) => {
     // Extra pause at the bottom to catch final layout renders
     merge(await step({ type: 'scribd-step', settleMs: 2000 }));
 
-    const missing = [];
+    const missing: number[] = [];
     for (let n = 1; n <= maxPageNum; n++) if (!pages.has(n)) missing.push(n);
     return { pages: [...pages.values()].sort((a, b) => a.pageNum - b.pageNum), missing };
 };
 
-const downloadSheet = async (urls, destPath) => {
-    let lastError;
+const downloadSheet = async (urls: string[], destPath: string) => {
+    let lastError: unknown;
     for (const url of urls) {
         for (let attempt = 1; attempt <= 3; attempt++) {
             try {
@@ -97,19 +111,19 @@ const downloadSheet = async (urls, destPath) => {
     throw lastError;
 };
 
-const downloadSheets = async (pages, imageDir) => {
+const downloadSheets = async (pages: ScribdPage[], imageDir: string): Promise<string[]> => {
     // src carries a signed token when Scribd set one; orig is the plain fallback
-    const sheets = new Map();
+    const sheets = new Map<string, string[]>();
     for (const page of pages) {
         for (const piece of page.pieces) {
-            const urls = [piece.src, piece.orig].filter(Boolean);
+            const urls = [piece.src, piece.orig].filter((u): u is string => Boolean(u));
             piece.file = sheetFileName(urls[0]);
             if (!sheets.has(piece.file)) sheets.set(piece.file, urls);
         }
     }
 
     fs.mkdirSync(imageDir, { recursive: true });
-    const failed = [];
+    const failed: string[] = [];
     let done = 0;
     for (const [file, urls] of sheets) {
         done++;
@@ -119,7 +133,7 @@ const downloadSheets = async (pages, imageDir) => {
             await downloadSheet(urls, destPath);
             await sleep(DOWNLOAD_DELAY);
         } catch (e) {
-            console.log(`[scribd] Failed to download ${urls[0]}: ${e.message}`);
+            console.log(`[scribd] Failed to download ${urls[0]}: ${e instanceof Error ? e.message : e}`);
             failed.push(file);
         }
         if (done % 50 === 0 || done === sheets.size) console.log(`[scribd] Sheets: ${done} / ${sheets.size}`);
@@ -128,8 +142,8 @@ const downloadSheets = async (pages, imageDir) => {
 };
 
 // Format is documented at the top of native/jigsaw2pdf.c
-const writeLayout = (pages, layoutPath) => {
-    const lines = [];
+const writeLayout = (pages: ScribdPage[], layoutPath: string) => {
+    const lines: string[] = [];
     for (const page of pages) {
         lines.push(`page ${page.width} ${page.height}`);
         for (const p of page.pieces) {
@@ -139,15 +153,14 @@ const writeLayout = (pages, layoutPath) => {
     fs.writeFileSync(layoutPath, lines.join('\n') + '\n');
 };
 
-const assemble = (layoutPath, outPdf) => {
+const assemble = (layoutPath: string, outPdf: string) => {
     const build = spawnSync('make', ['-s', '-C', NATIVE_DIR], { stdio: 'inherit' });
     if (build.status !== 0) throw new Error('Building native/jigsaw2pdf failed');
     const run = spawnSync(path.join(NATIVE_DIR, 'jigsaw2pdf'), [layoutPath, outPdf], { stdio: 'inherit' });
     if (run.status !== 0) throw new Error('jigsaw2pdf failed');
 };
 
-const finish = async (code) => {
-    try { await killExistingChrome(); } catch (_) {}
+const finish = (code: number) => {
     try { shutdownServer(); } catch (_) {}
     process.exit(code);
 };
@@ -155,7 +168,7 @@ const finish = async (code) => {
 const main = async () => {
     const docUrl = process.argv[2];
     if (!docUrl || !/^https?:\/\/([a-z0-9-]+\.)*scribd\.com\//i.test(docUrl)) {
-        console.log('Usage: node scribd.js <scribd document url> [out.pdf]');
+        console.log('Usage: node scribd.ts <scribd document url> [out.pdf]');
         process.exit(1);
     }
     const slug = docSlug(docUrl);
@@ -163,17 +176,15 @@ const main = async () => {
     const outPdf = path.resolve(process.argv[3] || path.join(OUT_ROOT, `${slug}.pdf`));
     fs.mkdirSync(workDir, { recursive: true });
 
-    await killExistingChrome();
-    console.log('[scribd] Spawning Chrome...');
-    launchChrome();
     initializeServer();
-    await sleep(8000);
-
     try {
+        console.log('[scribd] Waiting for the Chrome extension to connect...');
+        await waitForClient(CONNECT_TIMEOUT);
+
         console.log(`[scribd] Walking ${docUrl}`);
         const { pages, missing } = await collectPages(docUrl);
         console.log(`[scribd] Captured ${pages.length} pages`);
-        if (!pages.length) throw new Error('No pages captured. Is the document open and readable in this Chrome profile?');
+        if (!pages.length) throw new Error('No pages captured. Is the document readable in this Chrome profile?');
 
         const failed = await downloadSheets(pages, path.join(workDir, 'images'));
         if (failed.length) throw new Error(`${failed.length} image sheets failed to download; run again to retry them`);
@@ -189,13 +200,12 @@ const main = async () => {
         console.log(`[scribd] Done: ${outPdf}`);
         return finish(0);
     } catch (e) {
-        console.log(`[scribd] ${e.message}`);
+        console.log(`[scribd] ${e instanceof Error ? e.message : e}`);
         return finish(1);
     }
 };
 
 if (require.main === module) {
-    // Ensure Chrome is terminated on Ctrl+C or termination signals
     process.on('SIGINT', () => finish(130));
     process.on('SIGTERM', () => finish(143));
     main();

@@ -1,5 +1,5 @@
 const { initializeServer, sendCommand, shutdownServer } = require('./utils/webutils');
-const { killExistingChrome, launchChrome, EXT_PATH } = require('./utils/chrome');
+const { killExistingChrome, launchChrome, EXT_PATH } = require('./utils/chrome.ts');
 const path = require('path');
 const fs = require('fs');
 

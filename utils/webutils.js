@@ -230,10 +230,19 @@ const sendCommand = (command) => {
 
 }
 
+// Resolves once the extension has connected, so commands are not sent to nobody
+const waitForClient = async (timeoutMs) => {
+    const start = Date.now();
+    while (!sockets.length) {
+        if (Date.now() - start > timeoutMs) throw new Error('Chrome extension never connected to ws://localhost:3001');
+        await new Promise(r => setTimeout(r, 250));
+    }
+};
+
 // This handles raw input by sending it to ChatGPT and doing stuff.
 // Eventually we get to the point where we just give it the DOM, plus the click&type commands. 
 // But for now we have "APIs" that bundle a bunch of commands
 
 module.exports = {
-    initializeServer, sendCommand, shutdownServer
+    initializeServer, sendCommand, shutdownServer, waitForClient
 }
