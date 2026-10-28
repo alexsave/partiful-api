@@ -171,10 +171,18 @@ const shutdownServer = () => {
     } catch (_) {}
 };
 
-const sendCommand = (command) => {
+// With timeoutMs, rejects if no reply arrives in time and stops listening for it
+const sendCommand = (command, timeoutMs) => {
     return new Promise((resolve, reject) => {
         const message = createWebSocketFrame(JSON.stringify(command));
         console.log(`Sending message to ${sockets.length} sockets`);
+        const listeners = [];
+        if (timeoutMs) {
+            setTimeout(() => {
+                listeners.forEach(([socket, listener]) => socket.removeListener('data', listener));
+                reject(new Error(`No reply to ${command.type} within ${timeoutMs}ms`));
+            }, timeoutMs);
+        }
         sockets.forEach((socket) => {
             const onMessage = buffer => {
                 try {
@@ -224,6 +232,7 @@ const sendCommand = (command) => {
 
             socket.write(message);
             socket.on('data', onMessage);
+            listeners.push([socket, onMessage]);
         })
 
     })

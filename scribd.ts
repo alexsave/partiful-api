@@ -1,5 +1,6 @@
 // Saves a Scribd document as a PDF.
-// Usage: node scribd.ts <scribd document url> [out.pdf]
+// Usage: node scribd.ts [--iphone] <scribd document url> [out.pdf]
+//   --iphone  walk the document in iPhone device emulation, where Scribd shows fewer ads
 //
 // Uses your own Chrome (started if it is not running): load chrome_ext there and be logged in
 // to Scribd if the document needs it. The extension walks the document in a new tab and reports
@@ -19,6 +20,7 @@ const SCROLL_STEP = 0.25;   // Viewports per step, small so pages don't fly past
 const SCROLL_SETTLE = 650;  // Pause to let the DOM settle and render
 const BOTTOM_ROUNDS = 6;    // Steps at the bottom before trusting it is the end
 const DOWNLOAD_DELAY = 100; // Polite delay between sheet downloads
+const STEP_TIMEOUT = 30000;
 const CONNECT_TIMEOUT = 75000; // Covers a cold Chrome start plus one 30s reconnect alarm
 
 // Shapes produced by collectScribdPages in chrome_ext/content.js, in unscaled CSS px
@@ -49,19 +51,24 @@ const sheetFileName = (url: string): string => {
 };
 
 // sendCommand resolves with whatever message arrives next, so retry anything that is
-// not a step result (a reconnect greeting, for one).
+// not a step result (a reconnect greeting, an error from the tab) or never arrives.
 const step = async (command: object): Promise<StepResult> => {
     for (let attempt = 1; ; attempt++) {
-        const resp = await sendCommand(command);
-        if (resp && resp.result && Array.isArray(resp.result.pages)) return resp.result;
-        const shown = JSON.stringify(resp).slice(0, 200);
-        if (attempt >= 3) throw new Error(`Unexpected response to ${JSON.stringify(command)}: ${shown}`);
-        console.log(`[scribd] Unexpected response, retrying: ${shown}`);
+        let shown: string;
+        try {
+            const resp = await sendCommand(command, STEP_TIMEOUT);
+            if (resp && resp.result && Array.isArray(resp.result.pages)) return resp.result;
+            shown = JSON.stringify(resp).slice(0, 200);
+        } catch (e) {
+            shown = e instanceof Error ? e.message : String(e);
+        }
+        if (attempt >= 5) throw new Error(`Giving up on ${JSON.stringify(command)}: ${shown}`);
+        console.log(`[scribd] Retrying step: ${shown}`);
         await sleep(1000);
     }
 };
 
-const collectPages = async (docUrl: string) => {
+const collectPages = async (docUrl: string, device: string) => {
     const pages = new Map<number, ScribdPage>();
     let maxPageNum = 0;
     const merge = (result: StepResult) => {
@@ -76,7 +83,7 @@ const collectPages = async (docUrl: string) => {
         }
     };
 
-    merge(await step({ type: 'scribd-open', url: docUrl }));
+    merge(await step({ type: 'scribd-open', url: docUrl, device }));
     let bottomRounds = 0;
     while (bottomRounds <= BOTTOM_ROUNDS) {
         const result = await step({ type: 'scribd-step', scrollViewports: SCROLL_STEP, settleMs: SCROLL_SETTLE });
@@ -167,14 +174,16 @@ const finish = (code: number) => {
 };
 
 const main = async () => {
-    const docUrl = process.argv[2];
+    const args = process.argv.slice(2);
+    const device = args.includes('--iphone') ? 'iphone' : 'desktop';
+    const [docUrl, outArg] = args.filter(a => a !== '--iphone');
     if (!docUrl || !/^https?:\/\/([a-z0-9-]+\.)*scribd\.com\//i.test(docUrl)) {
-        console.log('Usage: node scribd.ts <scribd document url> [out.pdf]');
+        console.log('Usage: node scribd.ts [--iphone] <scribd document url> [out.pdf]');
         process.exit(1);
     }
     const slug = docSlug(docUrl);
     const workDir = path.join(OUT_ROOT, slug);
-    const outPdf = path.resolve(process.argv[3] || path.join(OUT_ROOT, `${slug}.pdf`));
+    const outPdf = path.resolve(outArg || path.join(OUT_ROOT, `${slug}.pdf`));
     fs.mkdirSync(workDir, { recursive: true });
 
     initializeServer();
@@ -183,8 +192,11 @@ const main = async () => {
         console.log('[scribd] Waiting for the Chrome extension to connect...');
         await waitForClient(CONNECT_TIMEOUT);
 
-        console.log(`[scribd] Walking ${docUrl}`);
-        const { pages, missing } = await collectPages(docUrl);
+        console.log(`[scribd] Walking ${docUrl} as ${device}`);
+        const walked = await collectPages(docUrl, device).finally(() =>
+            // Ends iPhone emulation; no reply is fine if the tab is gone
+            sendCommand({ type: 'scribd-done' }, 5000).catch(() => {}));
+        const { pages, missing } = walked;
         console.log(`[scribd] Captured ${pages.length} pages`);
         if (!pages.length) throw new Error('No pages captured. Is the document readable in this Chrome profile?');
 

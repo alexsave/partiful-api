@@ -99,6 +99,86 @@ const poolLoad = async (parsedData) => {
 }
 
 
+// ---- Scribd ----
+
+// Matches DevTools' iPhone SE device mode; Scribd shows fewer ads to phones
+const IPHONE = {
+    width: 375,
+    height: 667,
+    deviceScaleFactor: 2,
+    userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
+};
+
+const lastErrorOr = (resolve, reject) => (value) => {
+    const err = chrome.runtime.lastError;
+    if (err) reject(new Error(err.message));
+    else resolve(value);
+};
+
+const cdp = (tabId, method, params = {}) =>
+    new Promise((resolve, reject) => chrome.debugger.sendCommand({ tabId }, method, params, lastErrorOr(resolve, reject)));
+
+// Emulation lives in a debugger session, so 'desktop' just ends the session
+const emulateDevice = async (tabId, device) => {
+    if (device !== 'iphone') {
+        await new Promise(resolve => chrome.debugger.detach({ tabId }, () => resolve(void chrome.runtime.lastError)));
+        return;
+    }
+    await new Promise((resolve, reject) => chrome.debugger.attach({ tabId }, '1.3', () => {
+        const err = chrome.runtime.lastError;
+        if (err && !/already attached/i.test(err.message)) reject(new Error(err.message));
+        else resolve();
+    }));
+    await cdp(tabId, 'Emulation.setDeviceMetricsOverride', {
+        width: IPHONE.width, height: IPHONE.height, deviceScaleFactor: IPHONE.deviceScaleFactor, mobile: true,
+    });
+    await cdp(tabId, 'Emulation.setUserAgentOverride', { userAgent: IPHONE.userAgent, platform: 'iPhone' });
+    await cdp(tabId, 'Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+};
+
+// Resolves once the tab has finished loading url
+const navigate = (tabId, url) => new Promise((resolve, reject) => {
+    const onUpdated = (id, info, tab) => {
+        if (id !== tabId || info.status !== 'complete' || tab.url === 'about:blank') return;
+        chrome.tabs.onUpdated.removeListener(onUpdated);
+        resolve(tab);
+    };
+    chrome.tabs.onUpdated.addListener(onUpdated);
+    chrome.tabs.update(tabId, { url }, () => {
+        const err = chrome.runtime.lastError;
+        if (err) {
+            chrome.tabs.onUpdated.removeListener(onUpdated);
+            reject(new Error(err.message));
+        }
+    });
+});
+
+// Prefers the session tab, but finds the document again if this worker was restarted
+const findScribdTab = async () => {
+    if (sessionTab) {
+        const tab = await chrome.tabs.get(sessionTab.id).catch(() => null);
+        if (tab) return tab;
+    }
+    const tabs = await chrome.tabs.query({ url: 'https://*.scribd.com/document/*' });
+    return tabs[0] || null;
+};
+
+const scribdOpen = async (url, device) => {
+    const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tab = active || await chrome.tabs.create({ url: 'about:blank' });
+    // Emulate before loading so the page is served for that device
+    await emulateDevice(tab.id, device);
+    return navigate(tab.id, url);
+};
+
+// Always answers the server, so a lost reply shows up as an error instead of a hang
+const sendToTab = (tabId, params) => {
+    chrome.tabs.sendMessage(tabId, params, (results) => {
+        const err = chrome.runtime.lastError;
+        sendToServer(results || { type: params.type, result: `Error: no reply from tab: ${err ? err.message : 'empty'}` });
+    });
+};
+
 async function handleServerMessage(raw) {
     console.log('Received message from server:', raw);
     let parsedData;
@@ -170,21 +250,18 @@ async function handleServerMessage(raw) {
                 }
             });
         } else if (type === 'scribd-open') {
-            // Opens the document, then takes the first step from the top of the page
-            const tabSendRetry = tab => {
-                sessionTab = tab;
-                sendWithRetry(tab.id, { type: 'scribd-step', scrollTo: 0, settleMs: 3000 });
-            }
-
-            chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-                if (!tabs || tabs.length === 0) {
-                    chrome.tabs.create({ url: parsedData.url }, tabSendRetry);
-                } else {
-                    chrome.tabs.update(tabs[0].id, { url: parsedData.url }, tabSendRetry);
-                }
-            });
+            const tab = await scribdOpen(parsedData.url, parsedData.device);
+            sessionTab = tab;
+            // Take the first step from the top of the page
+            sendToTab(tab.id, { type: 'scribd-step', scrollTo: 0, settleMs: 3000 });
         } else if (type === 'scribd-step') {
-            sendWithRetry(sessionTab.id, parsedData);
+            const tab = await findScribdTab();
+            if (tab) sendToTab(tab.id, parsedData);
+            else sendToServer({ type, result: 'Error: no Scribd tab open' });
+        } else if (type === 'scribd-done') {
+            const tab = await findScribdTab();
+            if (tab) await emulateDevice(tab.id, 'desktop');
+            sendToServer({ type, result: 'ok' });
         } else if (['load'].includes(type)) {
             chrome.tabs.create({ url: parsedData.url }, (tab) => {
                 const tabSend = () => {
